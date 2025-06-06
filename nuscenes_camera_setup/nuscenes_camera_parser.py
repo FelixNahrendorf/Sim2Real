@@ -170,8 +170,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python camera_filter.py sensors.json calibrations.json
-  python camera_filter.py sensors.json calibrations.json --output-dir ./output
+  python3 nuscenes_camera_parser.py sensors.json calibrations.json
+  python3 nuscenes_camera_parser.py sensors.json calibrations.json --output-dir ./output
         """
     )
     

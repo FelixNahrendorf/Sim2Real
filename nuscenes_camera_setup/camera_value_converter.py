@@ -258,9 +258,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python camera_processor.py CAM_FRONT.json
-  python camera_processor.py "CAM_*.json" --output-dir ./processed
-  python camera_processor.py CAM_FRONT.json CAM_BACK.json --output-dir ./output
+  python3 camera_value_converter.py CAM_FRONT.json
+  python3 camera_value_converter.py "CAM_*.json" --output-dir ./processed
+  python3 camera_value_converter.py CAM_FRONT.json CAM_BACK.json --output-dir ./output
         """
     )
     
