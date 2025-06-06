@@ -162,7 +162,7 @@ def process_single_file(input_file: str, output_dir: str = None, precision: int 
     """
     # Generate output filename
     base_name = os.path.splitext(os.path.basename(input_file))[0]
-    output_filename = f"{base_name}_filtered.json"
+    output_filename = f"{base_name}_unique.json"
     
     if output_dir:
         # Create output directory if it doesn't exist
