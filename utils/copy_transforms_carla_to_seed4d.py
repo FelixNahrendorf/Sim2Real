@@ -20,9 +20,10 @@ def copy_transform_files():
         "transforms_train.json"
     ]
     
-    # Counter for successful copies
+    # Counter for successful copies, skipped files, and failed copies
     successful_copies = 0
     failed_copies = 0
+    skipped_copies = 0
     
     # Loop through spawn points 1-101
     for spawn_point in range(1, 102):
@@ -40,14 +41,20 @@ def copy_transform_files():
         
         # Copy each file
         spawn_point_success = True
+        spawn_point_skipped = False
         for filename in files_to_copy:
             source_file = source_dir / filename
             dest_file = dest_dir / filename
             
             try:
                 if source_file.exists():
-                    shutil.copy2(source_file, dest_file)
-                    print(f"  ✓ Copied {filename}")
+                    # Check if destination file already exists
+                    if dest_file.exists():
+                        print(f"  ◦ Skipped {filename} (already exists)")
+                        spawn_point_skipped = True
+                    else:
+                        shutil.copy2(source_file, dest_file)
+                        print(f"  ✓ Copied {filename}")
                 else:
                     print(f"  ✗ Source file not found: {source_file}")
                     spawn_point_success = False
@@ -55,8 +62,12 @@ def copy_transform_files():
                 print(f"  ✗ Error copying {filename}: {e}")
                 spawn_point_success = False
         
-        if spawn_point_success:
+        # Update counters based on spawn point results
+        if spawn_point_success and not spawn_point_skipped:
             successful_copies += 1
+        elif spawn_point_success and spawn_point_skipped:
+            # All files existed or were successfully copied/skipped
+            skipped_copies += 1
         else:
             failed_copies += 1
         
@@ -68,8 +79,9 @@ def copy_transform_files():
     print("=" * 50)
     print(f"Total spawn points processed: 101")
     print(f"Successful copies: {successful_copies}")
+    print(f"Skipped (files already exist): {skipped_copies}")
     print(f"Failed copies: {failed_copies}")
-    print(f"Success rate: {(successful_copies/101)*100:.1f}%")
+    print(f"Success rate: {((successful_copies + skipped_copies)/101)*100:.1f}%")
 
 if __name__ == "__main__":
     print("Starting transform files copy operation...")
