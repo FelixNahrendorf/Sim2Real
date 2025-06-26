@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.colors import ListedColormap
 
-def find_subdirectories(base_dir, pattern_prefix="carla_on_nuscene_0shot"):
+def find_subdirectories(base_dir, pattern_prefix="carla_nuscene_on_nuscene_0shot"):
     """
-    Find subdirectories matching the pattern: carla_on_nuscene_0shot_tdX_rendY
+    Find subdirectories matching the pattern: carla_nuscene_on_nuscene_0shot_tdX_rendY
     """
     subdirs = []
     pattern = re.compile(rf"{pattern_prefix}_td(\d+)_rend(\d+)$")
@@ -627,8 +627,8 @@ Example usage:
                        help='Path to parent directory to search for subdirectories')
     parser.add_argument('--output', '-o', default='score_analysis',
                        help='Output prefix for generated files (default: score_analysis)')
-    parser.add_argument('--pattern', default='carla_on_nuscene_0shot',
-                       help='Pattern prefix for subdirectory matching (default: carla_on_nuscene_0shot)')
+    parser.add_argument('--pattern', default='carla_nuscene_on_nuscene_0shot',
+                       help='Pattern prefix for subdirectory matching (default: carla_nuscene_on_nuscene_0shot)')
     
     args = parser.parse_args()
     
