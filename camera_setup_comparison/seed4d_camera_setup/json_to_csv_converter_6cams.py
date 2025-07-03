@@ -4,24 +4,22 @@ import sys
 import argparse
 from pathlib import Path
 
-def convert_json_to_csv(json_file_path, output_csv_path, include_back_fov110=False, verbose=True):
+def convert_json_to_csv(json_file_path, output_csv_path, verbose=True):
     """
     Convert JSON camera data to CSV format matching the camera parameters structure.
     
     Args:
         json_file_path (str): Path to input JSON file
         output_csv_path (str): Path to output CSV file
-        include_back_fov110 (bool): Whether to include CAM_BACK_fov110 in output
         verbose (bool): Whether to print status messages
     """
     
-    # Define camera mapping in the specified order
-    all_camera_names = [
+    # Define camera mapping for 6 cameras
+    camera_names = [
         "CAM_FRONT",
         "CAM_FRONT_RIGHT", 
         "CAM_FRONT_LEFT",
         "CAM_BACK",
-        "CAM_BACK_fov110",  # Special case for fov=110
         "CAM_BACK_LEFT",
         "CAM_BACK_RIGHT"
     ]
@@ -54,21 +52,11 @@ def convert_json_to_csv(json_file_path, output_csv_path, include_back_fov110=Fal
             print("Error: All arrays in JSON must have the same length")
         return False
     
-    # Check if we have exactly 7 entries (number of cameras)
-    if lengths[0] != 7:
+    # Check if we have exactly 6 entries (number of cameras)
+    if lengths[0] != 6:
         if verbose:
-            print(f"Error: Expected 7 camera entries, got {lengths[0]}")
+            print(f"Error: Expected 6 camera entries, got {lengths[0]}")
         return False
-    
-    # Determine which cameras to include in output
-    if include_back_fov110:
-        cameras_to_output = all_camera_names
-        if verbose:
-            print("Including CAM_BACK_fov110 in output")
-    else:
-        cameras_to_output = [cam for cam in all_camera_names if cam != "CAM_BACK_fov110"]
-        if verbose:
-            print("Excluding CAM_BACK_fov110 from output (but still reading from JSON)")
     
     # Prepare CSV data
     csv_data = []
@@ -77,25 +65,18 @@ def convert_json_to_csv(json_file_path, output_csv_path, include_back_fov110=Fal
     header = ['Camera', 'Parameter', 'Mean', 'Std_Dev', 'Min', 'Max', 'Median']
     csv_data.append(header)
     
-    # Process each camera (read all, but only output selected ones)
-    cameras_read = 0
-    cameras_written = 0
-    
-    for i, camera_name in enumerate(all_camera_names):
-        # Extract coordinate values (x, y, z) - always read from JSON
-        x, y, z = data['coordinates'][i]
+    # Process each camera
+    for i, camera_name in enumerate(camera_names):
+        # Extract coordinate values from JSON (original x, y, z)
+        json_x, json_y, json_z = data['coordinates'][i]
         pitch = data['pitchs'][i]
         yaw = data['yaws'][i]
         fov = data['fov'][i]
-        cameras_read += 1
         
-        # Check if this camera should be included in output
-        if camera_name not in cameras_to_output:
-            if verbose:
-                print(f"  Skipping {camera_name} (read but not written to CSV)")
-            continue
-        
-        cameras_written += 1
+        # Remap coordinates: json_x -> z, json_y -> x, json_z -> y
+        x = json_y  # JSON y becomes x
+        y = json_z  # JSON z becomes y
+        z = json_x  # JSON x becomes z
         
         # Note: Since we only have single values, we'll use them as mean
         # and set other statistics to 0 or the same value
@@ -132,8 +113,8 @@ def convert_json_to_csv(json_file_path, output_csv_path, include_back_fov110=Fal
         
         if verbose:
             print(f"Successfully converted {json_file_path} to {output_csv_path}")
-            print(f"Read {cameras_read} cameras from JSON, wrote {cameras_written} cameras to CSV")
-            print(f"Generated {len(csv_data)-1} parameter rows for {cameras_written} cameras")
+            print(f"Processed {len(camera_names)} cameras")
+            print(f"Generated {len(csv_data)-1} parameter rows")
         
         return True
         
@@ -147,13 +128,12 @@ def main():
     Main function to handle command line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Convert JSON camera data to CSV format',
+        description='Convert JSON camera data to CSV format (6 cameras)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python3 json_to_csv_converter.py input.json output.csv
-  python3 json_to_csv_converter.py input.json output.csv --include-back-fov110
-  python3 json_to_csv_converter.py input.json --exclude-back-fov110
+  python3 json_to_csv_converter.py input.json
   python3 json_to_csv_converter.py --input input.json --output output.csv
         """
     )
@@ -185,19 +165,6 @@ Examples:
         help='Output CSV file path (alternative to positional argument)'
     )
     
-    # CAM_BACK_fov110 control options (mutually exclusive)
-    fov110_group = parser.add_mutually_exclusive_group()
-    fov110_group.add_argument(
-        '--include-back-fov110',
-        action='store_true',
-        help='Include CAM_BACK_fov110 in the output CSV (default: exclude)'
-    )
-    fov110_group.add_argument(
-        '--exclude-back-fov110',
-        action='store_true',
-        help='Explicitly exclude CAM_BACK_fov110 from output CSV (default behavior)'
-    )
-    
     parser.add_argument(
         '--quiet', '-q',
         action='store_true',
@@ -218,20 +185,14 @@ Examples:
         # Generate output filename based on input
         csv_file = Path(json_file).stem + "_camera_parameters.csv"
     
-    # Determine whether to include CAM_BACK_fov110
-    include_back_fov110 = args.include_back_fov110
-    
     # Set verbosity
     verbose = not args.quiet
     
     if verbose:
         print(f"Converting {json_file} to {csv_file}")
-        if include_back_fov110:
-            print("Configuration: INCLUDING CAM_BACK_fov110 in output")
-        else:
-            print("Configuration: EXCLUDING CAM_BACK_fov110 from output")
+        print("Configuration: Processing 6 cameras")
     
-    success = convert_json_to_csv(json_file, csv_file, include_back_fov110, verbose)
+    success = convert_json_to_csv(json_file, csv_file, verbose)
     
     if success:
         if verbose:
@@ -245,31 +206,16 @@ Examples:
 class Config:
     """Configuration class to easily modify default behavior."""
     
-    # Default behavior for CAM_BACK_fov110
-    DEFAULT_INCLUDE_BACK_FOV110 = False
-    
     # Default file names
     DEFAULT_JSON_INPUT = "transforms_converted.json"
     DEFAULT_CSV_OUTPUT_SUFFIX = "_camera_parameters.csv"
-    
-    @classmethod
-    def set_default_include_back_fov110(cls, include=True):
-        """Change the default behavior for including CAM_BACK_fov110."""
-        cls.DEFAULT_INCLUDE_BACK_FOV110 = include
-        print(f"Default CAM_BACK_fov110 inclusion set to: {include}")
 
-# Convenience functions for programmatic use
-def convert_excluding_back_fov110(json_file, csv_file=None, verbose=True):
-    """Convert JSON to CSV, explicitly excluding CAM_BACK_fov110."""
+# Convenience function for programmatic use
+def convert_cameras_to_csv(json_file, csv_file=None, verbose=True):
+    """Convert JSON to CSV for 6 cameras."""
     if csv_file is None:
         csv_file = Path(json_file).stem + "_camera_parameters.csv"
-    return convert_json_to_csv(json_file, csv_file, include_back_fov110=False, verbose=verbose)
-
-def convert_including_back_fov110(json_file, csv_file=None, verbose=True):
-    """Convert JSON to CSV, explicitly including CAM_BACK_fov110."""
-    if csv_file is None:
-        csv_file = Path(json_file).stem + "_camera_parameters.csv"
-    return convert_json_to_csv(json_file, csv_file, include_back_fov110=True, verbose=verbose)
+    return convert_json_to_csv(json_file, csv_file, verbose=verbose)
 
 if __name__ == "__main__":
     main()
