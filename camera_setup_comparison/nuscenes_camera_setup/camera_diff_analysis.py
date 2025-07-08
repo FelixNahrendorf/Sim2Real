@@ -101,7 +101,7 @@ def compute_differences(df1, df2, filename1, filename2):
             col1 = f"{stat}_1"
             col2 = f"{stat}_2"
             if col1 in row and col2 in row and pd.notna(row[col1]) and pd.notna(row[col2]):
-                diff_row[f"{stat}_Diff"] = row[col2] - row[col1]  # File2 - File1
+                diff_row[f"{stat}_Diff"] = abs(row[col2]) - abs(row[col1])  # File2 - File1
                 diff_row[f"{stat}_1"] = row[col1]
                 diff_row[f"{stat}_2"] = row[col2]
                 
