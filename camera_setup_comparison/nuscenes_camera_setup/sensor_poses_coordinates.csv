@@ -29,3 +29,9 @@ data_nuscene_native_switch23_switch45,2,-1.495748,1.550848,-0.493405,/app/code/s
 data_nuscene_native_switch23_switch45,3,-1.579103,0.028326,0.003451,/app/code/seed4d/data_nuscene_native_switch23_switch45/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
 data_nuscene_native_switch23_switch45,4,-1.562396,1.014878,-0.480568,/app/code/seed4d/data_nuscene_native_switch23_switch45/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
 data_nuscene_native_switch23_switch45,5,-1.590970,1.035691,0.484795,/app/code/seed4d/data_nuscene_native_switch23_switch45/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data_seed4d,0,-1.502868,0.811547,-0.009254,/app/code/seed4d/data_seed4d/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data_seed4d,1,-1.507845,0.667533,0.497015,/app/code/seed4d/data_seed4d/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data_seed4d,2,-1.508522,0.651907,-0.497363,/app/code/seed4d/data_seed4d/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data_seed4d,3,-1.572496,-0.856341,-0.007168,/app/code/seed4d/data_seed4d/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data_seed4d,4,-1.575867,0.142854,-0.483099,/app/code/seed4d/data_seed4d/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data_seed4d,5,-1.556650,0.139059,0.473027,/app/code/seed4d/data_seed4d/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
