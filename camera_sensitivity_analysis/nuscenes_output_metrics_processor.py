@@ -220,7 +220,7 @@ def create_table_plot(df, output_path="metrics_table.png"):
                 # Skip compute_time column for blue highlighting
                 if col_name == 'compute_time':
                     continue
-                    
+                
                 baseline_value = baseline_row[col_name]
                 
                 if pd.notna(baseline_value):
@@ -228,8 +228,11 @@ def create_table_plot(df, output_path="metrics_table.png"):
                         if pd.notna(value) and row_idx != baseline_idx:  # Don't color baseline row
                             should_highlight = False
                             
+                            # Special case for drmse: only highlight when < baseline
+                            if col_name == 'drmse':
+                                should_highlight = value < baseline_value
                             # For lpips, lower is better (highlight when < baseline)
-                            if col_name == 'lpips':
+                            elif col_name == 'lpips':
                                 should_highlight = value < baseline_value
                             # For all other metrics, higher is better (highlight when > baseline)
                             else:
