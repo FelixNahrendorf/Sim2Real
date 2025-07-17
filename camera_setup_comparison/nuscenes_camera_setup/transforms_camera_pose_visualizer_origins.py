@@ -177,81 +177,8 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
     
     all_positions = []
     coordinate_data = []
-    
-    for file_idx, file_path in enumerate(file_paths):
-        data = load_transform_file(file_path)
-        if data is None:
-            continue
-            
-        dataset_name = extract_dataset_name(file_path)
-        file_color = color_palette[file_idx % len(color_palette)]
-        
-        # Collect all positions and rotations for this file
-        positions = []
-        rotations = []
-        hover_texts = []
-        
-        for frame_idx, frame in enumerate(data.get('frames', [])):
-            transform_matrix = frame.get('transform_matrix')
-            if transform_matrix is None:
-                continue
-                
-            position, rotation = transform_matrix_to_pose(transform_matrix)
-            positions.append(position)
-            rotations.append(rotation)
-            all_positions.append(position)
-            
-            # Store coordinate data
-            coordinate_data.append({
-                'file': dataset_name,
-                'sensor': frame_idx,
-                'x': position[0],
-                'y': position[1],
-                'z': position[2]
-            })
-            
-            # Create hover text with coordinates
-            hover_text = f"Dataset: {dataset_name}<br>Sensor: {frame_idx}<br>X: {position[0]:.3f}<br>Y: {position[1]:.3f}<br>Z: {position[2]:.3f}"
-            hover_texts.append(hover_text)
-        
-        if not positions:
-            continue
-            
-        positions = np.array(positions)
-        
-        # Create legend group name for this dataset
-        legend_group = f"group_{file_idx}"
-        
-        # Add sensor positions as markers with coordinate information
-        fig.add_trace(go.Scatter3d(
-            x=positions[:, 0],
-            y=positions[:, 1],
-            z=positions[:, 2],
-            mode='markers+text',
-            text=[str(i) for i in range(len(positions))],
-            textposition="top center",
-            hovertext=hover_texts,
-            hoverinfo='text',
-            marker=dict(
-                size=8,
-                color=file_color,
-                symbol='circle'
-            ),
-            name=f'{dataset_name} ({len(positions)} sensors)',
-            legendgroup=legend_group,
-            showlegend=True
-        ))
-        
-def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
-    """Create interactive 3D visualization using Plotly"""
-    fig = go.Figure()
-    
-    # Color palette
-    color_palette = px.colors.qualitative.Set1
-    
-    all_positions = []
-    coordinate_data = []
     file_data = []  # Store file info for cross-file calculations
+    origins_text = []  # Store origins text for display
     
     # First pass: collect all data and calculate origins
     for file_idx, file_path in enumerate(file_paths):
@@ -279,6 +206,9 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
         if positions:
             positions = np.array(positions)
             file_origin = np.mean(positions, axis=0)
+            
+            # Add origin text
+            origins_text.append(f"{dataset_name}: ({file_origin[0]:.3f}, {file_origin[1]:.3f}, {file_origin[2]:.3f})")
             
             file_data.append({
                 'idx': file_idx,
@@ -448,40 +378,6 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
                 ))
         
         # Add all X axes for this dataset as a single trace
-        
-        # Add coordinate system origin marker
-        fig.add_trace(go.Scatter3d(
-            x=[file_origin[0]],
-            y=[file_origin[1]],
-            z=[file_origin[2]],
-            mode='markers',
-            marker=dict(
-                size=12,
-                color=file_color,
-                symbol='diamond',
-                line=dict(width=2, color='black')
-            ),
-            legendgroup=legend_group,
-            showlegend=False,
-            hovertext=f"Origin: {dataset_name}<br>X: {file_origin[0]:.3f}<br>Y: {file_origin[1]:.3f}<br>Z: {file_origin[2]:.3f}",
-            hoverinfo='text',
-            name=f'{dataset_name} Origin'
-        ))
-        
-        # Add lines from sensors to coordinate system origin
-        fig.add_trace(go.Scatter3d(
-            x=origin_lines_x,
-            y=origin_lines_y,
-            z=origin_lines_z,
-            mode='lines',
-            line=dict(color=file_color, width=2, dash='dot'),
-            legendgroup=legend_group,
-            showlegend=False,
-            hoverinfo='skip',
-            name=f'{dataset_name} Origin Lines'
-        ))
-        
-        # Add all X axes for this dataset as a single trace
         fig.add_trace(go.Scatter3d(
             x=x_lines_x,
             y=x_lines_y,
@@ -544,6 +440,12 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
     # Create distance table HTML
     distance_table_html = create_distance_table_html(distance_data)
     
+    # Create origins text HTML
+    origins_html = "<h3>Dataset Origins:</h3><pre style='font-family: monospace; background-color: #f5f5f5; padding: 10px; border-radius: 5px;'>"
+    for origin_text in origins_text:
+        origins_html += origin_text + "\n"
+    origins_html += "</pre>"
+    
     # Update layout
     fig.update_layout(
         title='Interactive 3D Sensor Poses with Cross-Dataset Analysis<br><sub>X=Red, Y=Green, Z=Blue | Black=Global Origin | Dotted=Own Origin, Dashed=Cross Origins</sub>',
@@ -564,7 +466,7 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
     # Create custom HTML with coordinate and distance tables
     plot_html = fig.to_html(include_plotlyjs=True, div_id="plotly-div")
     
-    # Combine plot and tables
+    # Combine plot and tables with origins text
     full_html = f"""
     <!DOCTYPE html>
     <html>
@@ -572,8 +474,9 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
         <title>3D Sensor Poses with Distance Analysis</title>
         <style>
             body {{ font-family: Arial, sans-serif; margin: 20px; }}
-            .container {{ display: flex; flex-direction: column; }}
-            .plot-container {{ width: 100%; }}
+            .container {{ display: flex; flex-direction: row; }}
+            .plot-container {{ width: 70%; }}
+            .sidebar {{ width: 30%; padding-left: 20px; }}
             .tables-container {{ margin-top: 20px; display: flex; flex-direction: column; gap: 20px; }}
             .table-section {{ border: 1px solid #ddd; padding: 15px; border-radius: 5px; }}
             .coords-table, .distance-table {{ width: 100%; border-collapse: collapse; }}
@@ -583,7 +486,8 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
             .coords-table th, .distance-table th {{ background-color: #f2f2f2; }}
             .coords-table tr:nth-child(even), .distance-table tr:nth-child(even) {{ background-color: #f9f9f9; }}
             .distance-table td.distance-value {{ text-align: center; font-weight: bold; }}
-            h2 {{ color: #333; border-bottom: 2px solid #007acc; padding-bottom: 5px; }}
+            h2, h3 {{ color: #333; border-bottom: 2px solid #007acc; padding-bottom: 5px; }}
+            .origins-section {{ border: 1px solid #ddd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
         </style>
     </head>
     <body>
@@ -591,16 +495,21 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
             <div class="plot-container">
                 {plot_html.split('<body>')[1].split('</body>')[0]}
             </div>
-            <div class="tables-container">
-                <div class="table-section">
-                    <h2>Sensor Coordinates</h2>
-                    {coord_table_html}
+            <div class="sidebar">
+                <div class="origins-section">
+                    {origins_html}
                 </div>
-                <div class="table-section">
-                    <h2>Distance Analysis</h2>
-                    <p><strong>Distance from each sensor to all dataset origins (in meters)</strong></p>
-                    {distance_table_html}
-                </div>
+            </div>
+        </div>
+        <div class="tables-container">
+            <div class="table-section">
+                <h2>Sensor Coordinates</h2>
+                {coord_table_html}
+            </div>
+            <div class="table-section">
+                <h2>Distance Analysis</h2>
+                <p><strong>Distance from each sensor to all dataset origins (in meters)</strong></p>
+                {distance_table_html}
             </div>
         </div>
     </body>
@@ -725,37 +634,6 @@ def create_distance_table_html(distance_data):
                 html += f'<td class="distance-value">{min(target_distances):.3f}</td>'
                 html += f'<td class="distance-value">{max(target_distances):.3f}</td>'
                 html += f'<td class="distance-value">{np.mean(target_distances):.3f}</td></tr>'
-    
-    html += '</tbody></table>'
-    return html
-    """Create HTML table with coordinate information"""
-    if not coordinate_data:
-        return "<p>No coordinate data available.</p>"
-    
-    # Group by file
-    files = {}
-    for coord in coordinate_data:
-        file_name = coord['file']
-        if file_name not in files:
-            files[file_name] = []
-        files[file_name].append(coord)
-    
-    html = '<table class="coords-table">'
-    html += '<thead><tr><th>Dataset</th><th>Sensor</th><th>X (m)</th><th>Y (m)</th><th>Z (m)</th></tr></thead>'
-    html += '<tbody>'
-    
-    for file_name, coords in files.items():
-        # Sort by sensor number
-        coords.sort(key=lambda x: x['sensor'])
-        
-        for coord in coords:
-            html += f'<tr>'
-            html += f'<td>{coord["file"]}</td>'
-            html += f'<td>{coord["sensor"]}</td>'
-            html += f'<td>{coord["x"]:.3f}</td>'
-            html += f'<td>{coord["y"]:.3f}</td>'
-            html += f'<td>{coord["z"]:.3f}</td>'
-            html += f'</tr>'
     
     html += '</tbody></table>'
     return html
