@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from pyquaternion import Quaternion
 import os
+import json
 from nuscenes.nuscenes import NuScenes
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -91,6 +92,20 @@ def euler_to_degrees(euler_rad):
     Convert euler angles from radians to degrees
     """
     return np.rad2deg(euler_rad)
+
+def quaternion_to_transform_matrix(quaternion, translation):
+    """
+    Convert quaternion and translation to 4x4 transformation matrix
+    """
+    # Get rotation matrix from quaternion
+    rotation_matrix = quaternion.rotation_matrix
+    
+    # Create 4x4 transformation matrix
+    transform_matrix = np.eye(4)
+    transform_matrix[:3, :3] = rotation_matrix
+    transform_matrix[:3, 3] = translation
+    
+    return transform_matrix
  
 def get_all_camera_positions_with_images(nusc):
     """
@@ -114,10 +129,6 @@ def get_all_camera_positions_with_images(nusc):
             original_translation = np.array(calibrated_sensor['translation'])
             transformed_translation = apply_coordinate_transformation(original_translation)
            
-            # Get original position and apply transformation
-            original_translation = np.array(calibrated_sensor['translation'])
-            transformed_translation = apply_coordinate_transformation(original_translation)
-           
             # Get quaternion and apply rotation transformation
             original_quaternion = Quaternion(calibrated_sensor['rotation'])
             x_axis_flip = Quaternion(axis=[1, 0, 0], angle=np.pi)
@@ -135,6 +146,10 @@ def get_all_camera_positions_with_images(nusc):
             original_euler_deg = euler_to_degrees(original_euler_rad)
             transformed_euler_deg = euler_to_degrees(transformed_euler_rad)
            
+            # Create transformation matrices
+            original_transform_matrix = quaternion_to_transform_matrix(original_quaternion, original_translation)
+            transformed_transform_matrix = quaternion_to_transform_matrix(transformed_quaternion, transformed_translation)
+           
             camera_data[sensor['channel']] = {
                 'translation': transformed_translation,
                 'original_translation': original_translation,
@@ -146,6 +161,8 @@ def get_all_camera_positions_with_images(nusc):
                 'euler_deg': transformed_euler_deg,  # Transformed euler angles in degrees
                 'original_euler_rad': original_euler_rad,  # Original euler angles in radians
                 'original_euler_deg': original_euler_deg,  # Original euler angles in degrees
+                'transform_matrix': transformed_transform_matrix,  # Transformed 4x4 matrix
+                'original_transform_matrix': original_transform_matrix,  # Original 4x4 matrix
                 'sample_data_key': data_key,
                 'image_path': image_path,
                 'sample_data_token': sample_data_token,
@@ -153,6 +170,88 @@ def get_all_camera_positions_with_images(nusc):
             }
    
     return camera_data
+
+def create_json_output(camera_data, output_path_original='transforms_original.json', output_path_transformed='transforms_transformed.json'):
+    """
+    Create JSON output files following the structure of transforms_ego.json
+    """
+    # Base structure for both JSONs
+    base_structure = {
+        "camera_model": "OPENCV",
+        "k1": 0,
+        "k2": 0,
+        "p1": 0,
+        "p2": 0,
+        "frames": []
+    }
+    
+    # Create original transforms JSON
+    original_json = base_structure.copy()
+    original_json["frames"] = []
+    
+    # Create transformed transforms JSON
+    transformed_json = base_structure.copy()
+    transformed_json["frames"] = []
+    
+    # Process each camera
+    for idx, (camera_name, data) in enumerate(camera_data.items()):
+        # Get camera intrinsics
+        camera_intrinsic = np.array(data['camera_intrinsic'])
+        fl_x = camera_intrinsic[0, 0]
+        fl_y = camera_intrinsic[1, 1]
+        cx = camera_intrinsic[0, 2]
+        cy = camera_intrinsic[1, 2]
+        
+        # Assume standard image dimensions (you may need to adjust these)
+        w = 1600
+        h = 900
+        
+        # Original frame
+        original_frame = {
+            "file_path": f"../sensors/{idx}_rgb.png",
+            "depth_file_path": f"../sensors/{idx}_depth.png",
+            "semantic_segmentation_file_path": f"../sensors/{idx}_semantic_segmentation.png",
+            "instance_segmentation_file_path": f"../sensors/{idx}_instance_segmentation.png",
+            "transform_matrix": data['original_transform_matrix'].tolist(),
+            "fl_x": float(fl_x),
+            "fl_y": float(fl_y),
+            "cx": float(cx),
+            "cy": float(cy),
+            "w": w,
+            "h": h,
+            "camera_name": camera_name
+        }
+        
+        # Transformed frame
+        transformed_frame = {
+            "file_path": f"../sensors/{idx}_rgb.png",
+            "depth_file_path": f"../sensors/{idx}_depth.png",
+            "semantic_segmentation_file_path": f"../sensors/{idx}_semantic_segmentation.png",
+            "instance_segmentation_file_path": f"../sensors/{idx}_instance_segmentation.png",
+            "transform_matrix": data['transform_matrix'].tolist(),
+            "fl_x": float(fl_x),
+            "fl_y": float(fl_y),
+            "cx": float(cx),
+            "cy": float(cy),
+            "w": w,
+            "h": h,
+            "camera_name": camera_name
+        }
+        
+        original_json["frames"].append(original_frame)
+        transformed_json["frames"].append(transformed_frame)
+    
+    # Save JSON files
+    with open(output_path_original, 'w') as f:
+        json.dump(original_json, f, indent=4)
+    
+    with open(output_path_transformed, 'w') as f:
+        json.dump(transformed_json, f, indent=4)
+    
+    print(f"Original transforms saved to: {output_path_original}")
+    print(f"Transformed transforms saved to: {output_path_transformed}")
+    
+    return original_json, transformed_json
  
 def plot_camera_images(camera_data, figsize=(20, 12), output_path='camera_images.png'):
     """
@@ -365,12 +464,47 @@ def save_all_plots(camera_data, output_dir='output_plots'):
     plot_coordinate_comparison(camera_data, output_path=coordinate_comparison_path)
     
     # Save 3D camera positions plot
-    plot_camera_positions_3d(camera_data, output_path=camera_positions_3d_path)
+    #plot_camera_positions_3d(camera_data, output_path=camera_positions_3d_path)
     
     print(f"\nAll plots saved successfully in: {output_dir}")
     print(f"- Camera images: {camera_images_path}")
     print(f"- Coordinate comparison: {coordinate_comparison_path}")
     print(f"- Interactive 3D plot: {camera_positions_3d_path}")
+
+def save_all_outputs(camera_data, output_dir='output_plots'):
+    """
+    Save all plots and JSON files to the specified directory
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Define output paths
+    camera_images_path = os.path.join(output_dir, 'camera_images.png')
+    coordinate_comparison_path = os.path.join(output_dir, 'coordinate_comparison.png')
+    camera_positions_3d_path = os.path.join(output_dir, 'camera_positions_3d.html')
+    original_json_path = os.path.join(output_dir, 'transforms_original.json')
+    transformed_json_path = os.path.join(output_dir, 'transforms_transformed.json')
+    
+    print(f"Saving all outputs to directory: {output_dir}")
+    
+    # Save camera images plot
+    plot_camera_images(camera_data, output_path=camera_images_path)
+    
+    # Save coordinate comparison plot
+    plot_coordinate_comparison(camera_data, output_path=coordinate_comparison_path)
+    
+    # Save 3D camera positions plot
+    #plot_camera_positions_3d(camera_data, output_path=camera_positions_3d_path)
+    
+    # Save JSON files
+    create_json_output(camera_data, original_json_path, transformed_json_path)
+    
+    print(f"\nAll outputs saved successfully in: {output_dir}")
+    print(f"- Camera images: {camera_images_path}")
+    print(f"- Coordinate comparison: {coordinate_comparison_path}")
+    print(f"- Interactive 3D plot: {camera_positions_3d_path}")
+    print(f"- Original transforms JSON: {original_json_path}")
+    print(f"- Transformed transforms JSON: {transformed_json_path}")
  
 # Main execution
 if __name__ == "__main__":
@@ -383,8 +517,8 @@ if __name__ == "__main__":
     # Print camera information
     print_camera_info(camera_data)
    
-    # Save all plots to files
-    save_all_plots(camera_data)
+    # Save all plots and JSON files
+    save_all_outputs(camera_data)
    
     # Print both original and transformed positions for comparison
     print("\nCamera positions and rotations comparison:")
