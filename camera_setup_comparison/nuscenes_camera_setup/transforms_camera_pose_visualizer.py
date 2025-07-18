@@ -10,7 +10,7 @@ Outputs:
 - Interactive 3D plot (rotatable)
 - Static PNG image
 - PLY 3D file for external viewing
-- HTML file with interactive 3D visualization
+- HTML file with interactive 3D visualization (now includes rotation data)
 
 Usage:
     python visualize_poses.py <path1> <path2> ... <pathN>
@@ -59,6 +59,61 @@ def transform_matrix_to_pose(transform_matrix):
     position = transform[:3, 3]
     rotation = transform[:3, :3]
     return position, rotation
+
+def rotation_matrix_to_euler(rotation_matrix):
+    """Convert rotation matrix to Euler angles (roll, pitch, yaw) in degrees"""
+    # Using ZYX convention (yaw-pitch-roll)
+    sy = np.sqrt(rotation_matrix[0, 0] * rotation_matrix[0, 0] + rotation_matrix[1, 0] * rotation_matrix[1, 0])
+    
+    singular = sy < 1e-6
+    
+    if not singular:
+        x = np.arctan2(rotation_matrix[2, 1], rotation_matrix[2, 2])  # roll
+        y = np.arctan2(-rotation_matrix[2, 0], sy)                    # pitch
+        z = np.arctan2(rotation_matrix[1, 0], rotation_matrix[0, 0])  # yaw
+    else:
+        x = np.arctan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])  # roll
+        y = np.arctan2(-rotation_matrix[2, 0], sy)                     # pitch
+        z = 0                                                          # yaw
+    
+    # Convert to degrees
+    return np.degrees([x, y, z])
+
+def rotation_matrix_to_quaternion(rotation_matrix):
+    """Convert rotation matrix to quaternion (x, y, z, w)"""
+    R = rotation_matrix
+    
+    # Shepperd's method for numerical stability
+    trace = np.trace(R)
+    
+    if trace > 0:
+        s = np.sqrt(trace + 1.0) * 2  # s = 4 * qw
+        w = 0.25 * s
+        x = (R[2, 1] - R[1, 2]) / s
+        y = (R[0, 2] - R[2, 0]) / s
+        z = (R[1, 0] - R[0, 1]) / s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2  # s = 4 * qx
+        w = (R[2, 1] - R[1, 2]) / s
+        x = 0.25 * s
+        y = (R[0, 1] + R[1, 0]) / s
+        z = (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2  # s = 4 * qy
+        w = (R[0, 2] - R[2, 0]) / s
+        x = (R[0, 1] + R[1, 0]) / s
+        y = 0.25 * s
+        z = (R[1, 2] + R[2, 1]) / s
+    else:
+        s = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2  # s = 4 * qz
+        w = (R[1, 0] - R[0, 1]) / s
+        x = (R[0, 2] + R[2, 0]) / s
+        y = (R[1, 2] + R[2, 1]) / s
+        z = 0.25 * s
+    
+    # Normalize to ensure unit quaternion and return in x,y,z,w order
+    norm = np.sqrt(w*w + x*x + y*y + z*z)
+    return np.array([x, y, z, w]) / norm
 
 def plot_coordinate_system(ax, position, rotation, scale=0.1, alpha=0.7):
     """Plot coordinate system axes at given position and rotation"""
@@ -197,21 +252,39 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
                 continue
                 
             position, rotation = transform_matrix_to_pose(transform_matrix)
+            euler_angles = rotation_matrix_to_euler(rotation)
+            quaternion = rotation_matrix_to_quaternion(rotation)
+            
             positions.append(position)
             rotations.append(rotation)
             all_positions.append(position)
             
-            # Store coordinate data
+            # Store coordinate data with rotation information (Euler and quaternion)
             coordinate_data.append({
                 'file': dataset_name,
                 'sensor': frame_idx,
                 'x': position[0],
                 'y': position[1],
-                'z': position[2]
+                'z': position[2],
+                'roll': euler_angles[0],
+                'pitch': euler_angles[1],
+                'yaw': euler_angles[2],
+                'qx': quaternion[0],
+                'qy': quaternion[1],
+                'qz': quaternion[2],
+                'qw': quaternion[3]
             })
             
-            # Create hover text with coordinates
-            hover_text = f"Dataset: {dataset_name}<br>Sensor: {frame_idx}<br>X: {position[0]:.3f}<br>Y: {position[1]:.3f}<br>Z: {position[2]:.3f}"
+            # Create hover text with coordinates, Euler angles, and quaternions
+            hover_text = (f"Dataset: {dataset_name}<br>"
+                         f"Sensor: {frame_idx}<br>"
+                         f"X: {position[0]:.3f}<br>"
+                         f"Y: {position[1]:.3f}<br>"
+                         f"Z: {position[2]:.3f}<br>"
+                         f"Roll: {euler_angles[0]:.1f}°<br>"
+                         f"Pitch: {euler_angles[1]:.1f}°<br>"
+                         f"Yaw: {euler_angles[2]:.1f}°<br>"
+                         f"Quaternion (x,y,z,w): ({quaternion[0]:.3f}, {quaternion[1]:.3f}, {quaternion[2]:.3f}, {quaternion[3]:.3f})")
             hover_texts.append(hover_text)
         
         if not positions:
@@ -271,7 +344,7 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
         fig.add_trace(go.Scatter3d(
             x=x_lines_x,
             y=x_lines_y,
-            z=x_lines_z,
+            z=z_lines_z,
             mode='lines',
             line=dict(color='red', width=4),
             legendgroup=legend_group,
@@ -311,7 +384,7 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
     
     # Update layout
     fig.update_layout(
-        title='Interactive 3D Sensor Poses Visualization<br><sub>X=Red, Y=Green, Z=Blue | Use mouse to rotate, zoom, and pan | Hover over sensors for coordinates</sub>',
+        title='Interactive 3D Sensor Poses Visualization<br><sub>X=Red, Y=Green, Z=Blue | Use mouse to rotate, zoom, and pan | Hover over sensors for coordinates, Euler angles, and quaternions</sub>',
         scene=dict(
             xaxis_title='X (meters)',
             yaxis_title='Y (meters)',
@@ -344,6 +417,9 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
             .coords-table th, .coords-table td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
             .coords-table th {{ background-color: #f2f2f2; }}
             .coords-table tr:nth-child(even) {{ background-color: #f9f9f9; }}
+            .position-col {{ background-color: #e6f3ff; }}
+            .rotation-col {{ background-color: #ffe6f0; }}
+            .quaternion-col {{ background-color: #fff9e6; }}
         </style>
     </head>
     <body>
@@ -352,7 +428,10 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
                 {plot_html.split('<body>')[1].split('</body>')[0]}
             </div>
             <div class="coords-container">
-                <h2>Sensor Coordinates</h2>
+                <h2>Sensor Coordinates, Euler Angles, and Quaternions</h2>
+                <p><strong>Position columns (blue background):</strong> X, Y, Z coordinates in meters</p>
+                <p><strong>Euler angles (pink background):</strong> Roll, Pitch, Yaw angles in degrees (ZYX convention)</p>
+                <p><strong>Quaternion columns (yellow background):</strong> x, y, z, w components (unit quaternion, x,y,z,w order)</p>
                 {coord_table_html}
             </div>
         </div>
@@ -364,13 +443,13 @@ def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
     with open(output_path, 'w') as f:
         f.write(full_html)
     
-    print(f"Interactive HTML with coordinates saved to: {output_path}")
+    print(f"Interactive HTML with coordinates and rotations saved to: {output_path}")
     
     # Show interactive plot
     fig.show()
 
 def create_coordinate_table_html(coordinate_data):
-    """Create HTML table with coordinate information"""
+    """Create HTML table with coordinate, Euler angles, and quaternion information"""
     if not coordinate_data:
         return "<p>No coordinate data available.</p>"
     
@@ -383,7 +462,20 @@ def create_coordinate_table_html(coordinate_data):
         files[file_name].append(coord)
     
     html = '<table class="coords-table">'
-    html += '<thead><tr><th>Dataset</th><th>Sensor</th><th>X (m)</th><th>Y (m)</th><th>Z (m)</th></tr></thead>'
+    html += '<thead><tr>'
+    html += '<th>Dataset</th>'
+    html += '<th>Sensor</th>'
+    html += '<th class="position-col">X (m)</th>'
+    html += '<th class="position-col">Y (m)</th>'
+    html += '<th class="position-col">Z (m)</th>'
+    html += '<th class="rotation-col">Roll (°)</th>'
+    html += '<th class="rotation-col">Pitch (°)</th>'
+    html += '<th class="rotation-col">Yaw (°)</th>'
+    html += '<th class="quaternion-col">Q_x</th>'
+    html += '<th class="quaternion-col">Q_y</th>'
+    html += '<th class="quaternion-col">Q_z</th>'
+    html += '<th class="quaternion-col">Q_w</th>'
+    html += '</tr></thead>'
     html += '<tbody>'
     
     for file_name, coords in files.items():
@@ -394,16 +486,23 @@ def create_coordinate_table_html(coordinate_data):
             html += f'<tr>'
             html += f'<td>{coord["file"]}</td>'
             html += f'<td>{coord["sensor"]}</td>'
-            html += f'<td>{coord["x"]:.3f}</td>'
-            html += f'<td>{coord["y"]:.3f}</td>'
-            html += f'<td>{coord["z"]:.3f}</td>'
+            html += f'<td class="position-col">{coord["x"]:.3f}</td>'
+            html += f'<td class="position-col">{coord["y"]:.3f}</td>'
+            html += f'<td class="position-col">{coord["z"]:.3f}</td>'
+            html += f'<td class="rotation-col">{coord["roll"]:.1f}</td>'
+            html += f'<td class="rotation-col">{coord["pitch"]:.1f}</td>'
+            html += f'<td class="rotation-col">{coord["yaw"]:.1f}</td>'
+            html += f'<td class="quaternion-col">{coord["qx"]:.4f}</td>'
+            html += f'<td class="quaternion-col">{coord["qy"]:.4f}</td>'
+            html += f'<td class="quaternion-col">{coord["qz"]:.4f}</td>'
+            html += f'<td class="quaternion-col">{coord["qw"]:.4f}</td>'
             html += f'</tr>'
     
     html += '</tbody></table>'
     return html
 
 def save_coordinates_csv(file_paths, output_path='sensor_coordinates.csv'):
-    """Save sensor coordinates to CSV file"""
+    """Save sensor coordinates, Euler angles, and quaternions to CSV file"""
     coordinate_data = []
     
     for file_idx, file_path in enumerate(file_paths):
@@ -419,6 +518,8 @@ def save_coordinates_csv(file_paths, output_path='sensor_coordinates.csv'):
                 continue
                 
             position, rotation = transform_matrix_to_pose(transform_matrix)
+            euler_angles = rotation_matrix_to_euler(rotation)
+            quaternion = rotation_matrix_to_quaternion(rotation)
             
             coordinate_data.append({
                 'Dataset': dataset_name,
@@ -426,6 +527,13 @@ def save_coordinates_csv(file_paths, output_path='sensor_coordinates.csv'):
                 'X': f"{position[0]:.6f}",
                 'Y': f"{position[1]:.6f}",
                 'Z': f"{position[2]:.6f}",
+                'Roll_deg': f"{euler_angles[0]:.3f}",
+                'Pitch_deg': f"{euler_angles[1]:.3f}",
+                'Yaw_deg': f"{euler_angles[2]:.3f}",
+                'Quaternion_x': f"{quaternion[0]:.6f}",
+                'Quaternion_y': f"{quaternion[1]:.6f}",
+                'Quaternion_z': f"{quaternion[2]:.6f}",
+                'Quaternion_w': f"{quaternion[3]:.6f}",
                 'File_Path': file_path
             })
     
@@ -433,12 +541,13 @@ def save_coordinates_csv(file_paths, output_path='sensor_coordinates.csv'):
     if coordinate_data:
         import csv
         with open(output_path, 'w', newline='') as csvfile:
-            fieldnames = ['Dataset', 'Sensor', 'X', 'Y', 'Z', 'File_Path']
+            fieldnames = ['Dataset', 'Sensor', 'X', 'Y', 'Z', 'Roll_deg', 'Pitch_deg', 'Yaw_deg', 
+                         'Quaternion_x', 'Quaternion_y', 'Quaternion_z', 'Quaternion_w', 'File_Path']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(coordinate_data)
         
-        print(f"Coordinates CSV saved to: {output_path}")
+        print(f"Coordinates, Euler angles, and quaternions CSV saved to: {output_path}")
     
     return coordinate_data
 
@@ -557,12 +666,12 @@ def main():
     
     # Generate coordinate data first
     if not args.no_csv:
-        print("\nGenerating coordinates CSV...")
+        print("\nGenerating coordinates, Euler angles, and quaternions CSV...")
         coordinate_data = save_coordinates_csv(valid_files, f"{args.output}_coordinates.csv")
     
     # Generate visualizations
     if not args.no_interactive:
-        print("\nGenerating interactive 3D visualization with coordinate table...")
+        print("\nGenerating interactive 3D visualization with coordinate, Euler, and quaternion table...")
         create_interactive_plotly(valid_files, f"{args.output}.html")
     
     if not args.no_static:
@@ -576,25 +685,25 @@ def main():
     print("\nVisualization complete!")
     print(f"Files generated:")
     if not args.no_interactive:
-        print(f"  - Interactive HTML with coordinates: {args.output}.html")
+        print(f"  - Interactive HTML with coordinates, Euler angles, and quaternions: {args.output}.html")
     if not args.no_static:
         print(f"  - Static PNG: {args.output}.png")
     if not args.no_ply:
         print(f"  - 3D PLY file: {args.output}.ply")
     if not args.no_csv:
-        print(f"  - Coordinates CSV: {args.output}_coordinates.csv")
+        print(f"  - Coordinates, Euler angles, and quaternions CSV: {args.output}_coordinates.csv")
     
     if not args.no_interactive:
-        print(f"\nTo view the interactive 3D visualization with coordinate table, open {args.output}.html in your web browser.")
+        print(f"\nTo view the interactive 3D visualization with coordinate, Euler, and quaternion table, open {args.output}.html in your web browser.")
     if not args.no_ply:
         print(f"To view the PLY file, use software like MeshLab, Blender, or CloudCompare.")
     if not args.no_csv:
-        print(f"The CSV file contains all sensor coordinates for data analysis.")
+        print(f"The CSV file contains all sensor coordinates, Euler angles, and quaternions for data analysis.")
         
-    # Print coordinate summary to console
-    print(f"\n" + "="*60)
-    print("COORDINATE SUMMARY")
-    print("="*60)
+            # Print coordinate and rotation summary to console
+    print(f"\n" + "="*120)
+    print("COORDINATE, EULER ANGLES, AND QUATERNION SUMMARY")
+    print("="*120)
     
     for file_idx, file_path in enumerate(valid_files):
         data = load_transform_file(file_path)
@@ -603,17 +712,24 @@ def main():
             
         dataset_name = extract_dataset_name(file_path)
         print(f"\nDataset: {dataset_name}")
-        print("-" * 40)
+        print("-" * 100)
+        print(f"{'Sensor':>6} {'X':>8} {'Y':>8} {'Z':>8} {'Roll':>8} {'Pitch':>8} {'Yaw':>8} {'Q_x':>8} {'Q_y':>8} {'Q_z':>8} {'Q_w':>8}")
+        print("-" * 100)
         
         for frame_idx, frame in enumerate(data.get('frames', [])):
             transform_matrix = frame.get('transform_matrix')
             if transform_matrix is None:
                 continue
                 
-            position, _ = transform_matrix_to_pose(transform_matrix)
-            print(f"Sensor {frame_idx:2d}: X={position[0]:8.3f}, Y={position[1]:8.3f}, Z={position[2]:8.3f}")
+            position, rotation = transform_matrix_to_pose(transform_matrix)
+            euler_angles = rotation_matrix_to_euler(rotation)
+            quaternion = rotation_matrix_to_quaternion(rotation)
+            
+            print(f"{frame_idx:6d} {position[0]:8.3f} {position[1]:8.3f} {position[2]:8.3f} "
+                  f"{euler_angles[0]:8.1f} {euler_angles[1]:8.1f} {euler_angles[2]:8.1f} "
+                  f"{quaternion[0]:8.4f} {quaternion[1]:8.4f} {quaternion[2]:8.4f} {quaternion[3]:8.4f}")
     
-    print("="*60)
+    print("="*120)
 
 if __name__ == "__main__":
     main()
