@@ -106,6 +106,32 @@ def quaternion_to_transform_matrix(quaternion, translation):
     transform_matrix[:3, 3] = translation
     
     return transform_matrix
+
+def reorder_camera_data(camera_data):
+    """
+    Reorder camera data from original order (0,1,2,3,4,5) to new order (0,1,5,3,4,2)
+    """
+    # Define the new order mapping: new_index -> old_index
+    reorder_mapping = {0: 0, 1: 1, 2: 5, 3: 3, 4: 4, 5: 2}
+    
+    # Convert camera_data to a list to maintain order
+    camera_list = list(camera_data.items())
+    
+    # Create new ordered dictionary
+    reordered_camera_data = {}
+    
+    # Apply the reordering
+    for new_idx in range(len(camera_list)):
+        if new_idx < len(camera_list):
+            old_idx = reorder_mapping[new_idx]
+            if old_idx < len(camera_list):
+                camera_name, data = camera_list[old_idx]
+                reordered_camera_data[camera_name] = data
+    
+    print(f"Reordered cameras from original order (0,1,2,3,4,5) to new order (0,1,5,3,4,2)")
+    print(f"New camera order: {list(reordered_camera_data.keys())}")
+    
+    return reordered_camera_data
  
 def get_all_camera_positions_with_images(nusc):
     """
@@ -168,6 +194,9 @@ def get_all_camera_positions_with_images(nusc):
                 'sample_data_token': sample_data_token,
                 'camera_intrinsic': calibrated_sensor['camera_intrinsic']
             }
+    
+    # REORDER CAMERAS HERE - right after reading nuScenes data, before any further processing
+    camera_data = reorder_camera_data(camera_data)
    
     return camera_data
 
@@ -291,7 +320,7 @@ def plot_camera_images(camera_data, figsize=(20, 12), output_path='camera_images
            
             # Create title with camera info (using transformed coordinates)
             translation = data['translation']
-            title = f"{camera_name}\n"
+            title = f"{camera_name} (Index: {idx})\n"
             title += f"Position: [{translation[0]:.2f}, {translation[1]:.2f}, {translation[2]:.2f}]"
            
             ax.set_title(title, fontsize=10, pad=10)
@@ -300,7 +329,7 @@ def plot_camera_images(camera_data, figsize=(20, 12), output_path='camera_images
         except Exception as e:
             ax.text(0.5, 0.5, f"Error loading image:\n{str(e)}",
                    ha='center', va='center', transform=ax.transAxes)
-            ax.set_title(f"{camera_name} - Image Error", fontsize=10)
+            ax.set_title(f"{camera_name} (Index: {idx}) - Image Error", fontsize=10)
             ax.axis('off')
    
     # Hide unused subplots
@@ -308,7 +337,7 @@ def plot_camera_images(camera_data, figsize=(20, 12), output_path='camera_images
         axes_flat[idx].axis('off')
    
     plt.tight_layout()
-    plt.suptitle('nuScenes Camera Views and Positions (Transformed Coordinates)', fontsize=16, y=0.98)
+    plt.suptitle('nuScenes Camera Views and Positions (Reordered: 0,1,5,3,4,2)', fontsize=16, y=0.98)
     
     # Save as PNG
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -343,10 +372,10 @@ def plot_camera_positions_3d(camera_data, output_path='camera_positions_3d.html'
             z=[translation[2]],
             mode='markers+text',
             marker=dict(size=8, color=colors[idx % len(colors)]),
-            name=camera_name,
-            text=[camera_name],
+            name=f"{camera_name} (Index: {idx})",
+            text=[f"{camera_name} ({idx})"],
             textposition="top center",
-            hovertemplate=f'<b>{camera_name}</b><br>' +
+            hovertemplate=f'<b>{camera_name} (Index: {idx})</b><br>' +
                          f'X: {translation[0]:.2f}<br>' +
                          f'Y: {translation[1]:.2f}<br>' +
                          f'Z: {translation[2]:.2f}<extra></extra>'
@@ -354,7 +383,7 @@ def plot_camera_positions_3d(camera_data, output_path='camera_positions_3d.html'
     
     # Update layout
     fig.update_layout(
-        title='Camera Positions Relative to Ego Vehicle (Transformed Coordinates)',
+        title='Camera Positions Relative to Ego Vehicle (Reordered: 0,1,5,3,4,2)',
         scene=dict(
             xaxis_title='X (transformed: -z_old)',
             yaxis_title='Y (transformed: x_old)',
@@ -386,9 +415,9 @@ def plot_coordinate_comparison(camera_data, output_path='coordinate_comparison.p
     for idx, (camera_name, data) in enumerate(camera_data.items()):
         orig_translation = data['original_translation']
         ax1.scatter(orig_translation[0], orig_translation[1], orig_translation[2],
-                   s=60, label=camera_name, color=colors[idx % len(colors)])
+                   s=60, label=f"{camera_name} ({idx})", color=colors[idx % len(colors)])
         ax1.text(orig_translation[0], orig_translation[1], orig_translation[2] + 0.1,
-                camera_name, fontsize=8)
+                f"{camera_name} ({idx})", fontsize=8)
    
     ax1.set_xlabel('X (original)')
     ax1.set_ylabel('Y (original)')
@@ -403,14 +432,14 @@ def plot_coordinate_comparison(camera_data, output_path='coordinate_comparison.p
     for idx, (camera_name, data) in enumerate(camera_data.items()):
         translation = data['translation']
         ax2.scatter(translation[0], translation[1], translation[2],
-                   s=60, label=camera_name, color=colors[idx % len(colors)])
+                   s=60, label=f"{camera_name} ({idx})", color=colors[idx % len(colors)])
         ax2.text(translation[0], translation[1], translation[2] + 0.1,
-                camera_name, fontsize=8)
+                f"{camera_name} ({idx})", fontsize=8)
    
     ax2.set_xlabel('X (transformed: -z_old)')
     ax2.set_ylabel('Y (transformed: x_old)')
     ax2.set_zlabel('Z (transformed: -y_old)')
-    ax2.set_title('Transformed Coordinate System')
+    ax2.set_title('Transformed Coordinate System (Reordered)')
     ax2.legend()
    
     plt.tight_layout()
@@ -425,11 +454,11 @@ def print_camera_info(camera_data):
     """
     Print detailed camera information showing both original and transformed coordinates
     """
-    print("Camera Information:")
+    print("Camera Information (Reordered: 0,1,5,3,4,2):")
     print("=" * 110)
    
-    for camera_name, data in camera_data.items():
-        print(f"\n{camera_name}:")
+    for idx, (camera_name, data) in enumerate(camera_data.items()):
+        print(f"\n{camera_name} (Index: {idx}):")
         print(f"  Original position:      {data['original_translation']}")
         print(f"  Transformed position:   {data['translation']}")
         print(f"  Original rotation (x,y,z,w):     {data['original_rotation_xyzw']}")
@@ -511,7 +540,7 @@ if __name__ == "__main__":
     # Assuming you have already initialized nusc
     # nusc = NuScenes(version='v1.0-mini', dataroot='/path/to/nuscenes', verbose=True)
    
-    # Get camera data with images (now includes transformation)
+    # Get camera data with images (now includes reordering and transformation)
     camera_data = get_all_camera_positions_with_images(nusc)
    
     # Print camera information
@@ -521,16 +550,16 @@ if __name__ == "__main__":
     save_all_outputs(camera_data)
    
     # Print both original and transformed positions for comparison
-    print("\nCamera positions and rotations comparison:")
+    print("\nCamera positions and rotations comparison (Reordered: 0,1,5,3,4,2):")
     print("=" * 120)
-    for camera, data in camera_data.items():
+    for idx, (camera, data) in enumerate(camera_data.items()):
         orig_pos = data['original_translation']
         trans_pos = data['translation']
         orig_rot_xyzw = data['original_rotation_xyzw']
         trans_rot_xyzw = data['rotation_xyzw']
         orig_euler_deg = data['original_euler_deg']
         trans_euler_deg = data['euler_deg']
-        print(f"{camera}:")
+        print(f"{camera} (Index: {idx}):")
         print(f"  Original position:      [{orig_pos[0]:6.2f}, {orig_pos[1]:6.2f}, {orig_pos[2]:6.2f}]")
         print(f"  Transformed position:   [{trans_pos[0]:6.2f}, {trans_pos[1]:6.2f}, {trans_pos[2]:6.2f}]")
         print(f"  Original rotation (x,y,z,w):     [{orig_rot_xyzw[0]:6.3f}, {orig_rot_xyzw[1]:6.3f}, {orig_rot_xyzw[2]:6.3f}, {orig_rot_xyzw[3]:6.3f}]")
