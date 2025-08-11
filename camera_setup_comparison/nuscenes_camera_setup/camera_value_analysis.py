@@ -98,6 +98,8 @@ def analyze_camera_files(file_pattern):
         camera_name = Path(file_path).stem
         if camera_name.endswith('_converted'):
             camera_name = camera_name[:-10]  # Remove "_converted"
+        elif camera_name.endswith('_transformed'):
+            camera_name = camera_name[:-12]  # Remove "_transformed"
         
         print(f"Processing: {camera_name}")
         
