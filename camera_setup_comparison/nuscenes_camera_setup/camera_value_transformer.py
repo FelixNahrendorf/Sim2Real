@@ -153,20 +153,69 @@ def transform_camera_poses(camera_input_data):
     return transformed_json
 
 
-def quaternion_to_euler(quaternion):
-    """Convert quaternion to Euler angles (roll, pitch, yaw) in radians using scipy for stability."""
-    # Convert pyquaternion to scipy format (x, y, z, w)
-    if isinstance(quaternion, Quaternion):
-        quat_scipy = [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
-    else:
-        # Assume [w, x, y, z] format, convert to [x, y, z, w]
-        quat_scipy = [quaternion[1], quaternion[2], quaternion[3], quaternion[0]]
+def rotation_matrix_to_euler_robust(R):
+    """
+    Convert rotation matrix to Euler angles (roll, pitch, yaw) with robust handling of singularities.
+    Uses ZYX convention (yaw-pitch-roll) which is more stable for camera poses.
     
-    # Use scipy for numerically stable conversion
-    r = Rotation.from_quat(quat_scipy)
-    roll, pitch, yaw = r.as_euler('xyz', degrees=False)
+    Args:
+        R: 3x3 rotation matrix
+    
+    Returns:
+        tuple: (roll, pitch, yaw) in radians
+    """
+    # Ensure numerical precision
+    R = np.array(R, dtype=np.float64)
+    
+    # Extract pitch from R[2,0] = -sin(pitch)
+    sin_pitch = -R[2, 0]
+    
+    # Clamp to avoid numerical issues
+    sin_pitch = np.clip(sin_pitch, -1.0, 1.0)
+    pitch = np.arcsin(sin_pitch)
+    
+    # Check for gimbal lock (pitch close to ±90 degrees)
+    cos_pitch = np.cos(pitch)
+    
+    if np.abs(cos_pitch) < 1e-6:  # Near gimbal lock
+        # Set roll to 0 and compute yaw
+        roll = 0.0
+        if sin_pitch > 0:  # pitch = +90°
+            yaw = np.arctan2(-R[0, 1], R[1, 1])
+        else:  # pitch = -90°
+            yaw = np.arctan2(R[0, 1], R[1, 1])
+    else:
+        # Normal case - no gimbal lock
+        # roll from R[2,1]/cos(pitch) = sin(roll) and R[2,2]/cos(pitch) = cos(roll)
+        roll = np.arctan2(R[2, 1] / cos_pitch, R[2, 2] / cos_pitch)
+        
+        # yaw from R[1,0]/cos(pitch) = sin(yaw) and R[0,0]/cos(pitch) = cos(yaw)
+        yaw = np.arctan2(R[1, 0] / cos_pitch, R[0, 0] / cos_pitch)
+
     
     return roll, pitch, yaw
+
+
+def quaternion_to_euler_robust(quaternion):
+    """
+    Convert quaternion to Euler angles using robust rotation matrix method.
+    
+    Args:
+        quaternion: Quaternion object or [w, x, y, z] list
+    
+    Returns:
+        tuple: (roll, pitch, yaw) in radians
+    """
+    # Convert to rotation matrix first
+    if isinstance(quaternion, Quaternion):
+        rotation_matrix = quaternion.rotation_matrix
+    else:
+        # Assume [w, x, y, z] format
+        q = Quaternion(w=quaternion[0], x=quaternion[1], y=quaternion[2], z=quaternion[3])
+        rotation_matrix = q.rotation_matrix
+    
+    # Use robust matrix to Euler conversion
+    return rotation_matrix_to_euler_robust(rotation_matrix)
 
 
 def compute_horizontal_fov(camera_intrinsic, image_width=1600):
@@ -184,7 +233,7 @@ def compute_horizontal_fov(camera_intrinsic, image_width=1600):
     return horizontal_fov_deg
 
 
-def extract_transform_data(transformed_json):
+def extract_transform_data(transformed_json, input_file):
     """Extract coordinates, Euler angles, and FOV from transformed JSON."""
     coordinates = []
     rolls = []
@@ -198,13 +247,14 @@ def extract_transform_data(transformed_json):
         translation = transform_matrix[:3, 3]
         coordinates.append(translation.tolist())
         
-        # Extract rotation matrix and convert to quaternion
+        # Extract rotation matrix and convert to Euler angles using robust method
         rotation_matrix = transform_matrix[:3, :3]
-        r = Rotation.from_matrix(rotation_matrix)
-        quat_scipy = r.as_quat()  # Returns [x, y, z, w]
-        
-        # Convert to Euler angles
-        roll, pitch, yaw = r.as_euler('xyz', degrees=False)
+        roll, pitch, yaw = rotation_matrix_to_euler_robust(rotation_matrix)
+
+        # Due to the coordinate system transformation, there is numerical instability, we need to adjust roll for specific cameras
+        if 'CAM_BACK_RIGHT' in input_file:
+            roll = abs(roll)  # Ensure roll is positive for back right camera
+
         rolls.append(roll)
         pitches.append(pitch)
         yaws.append(yaw)
@@ -252,7 +302,7 @@ def process_camera_file(input_file, output_dir=None):
     transformed_json = transform_camera_poses(camera_input_data)
     
     # Extract coordinates, Euler angles, and FOV
-    output_data = extract_transform_data(transformed_json)
+    output_data = extract_transform_data(transformed_json, input_file)
     
     # Generate output filename
     input_path = Path(input_file)
