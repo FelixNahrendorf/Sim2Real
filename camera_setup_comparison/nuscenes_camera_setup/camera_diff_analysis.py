@@ -129,35 +129,114 @@ def get_camera_order_and_colors():
     }
     return camera_order, color_map
 
-def get_param_order_and_labels():
-    """Get parameter order and labels."""
-    param_order = ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'fov']
+def get_param_order_and_labels(available_params=None):
+    """Get parameter order and labels, auto-detecting from available data if provided."""
+    
+    # Default parameter mappings for different types of camera data
+    default_orders = {
+        # Transform matrix parameters (rotation matrix + translation + intrinsics)
+        'transform_matrix': ['TX', 'TY', 'TZ', 'R11', 'R12', 'R13', 'R21', 'R22', 'R23', 'R31', 'R32', 'R33', 'fx', 'fy', 'cx', 'cy'],
+        # Pose parameters (position + orientation + FOV)
+        'pose': ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'fov'],
+        # Intrinsics only
+        'intrinsics': ['fx', 'fy', 'cx', 'cy', 'fov'],
+        # Extrinsics only  
+        'extrinsics': ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'TX', 'TY', 'TZ'],
+        # Rotation matrix only
+        'rotation_matrix': ['R11', 'R12', 'R13', 'R21', 'R22', 'R23', 'R31', 'R32', 'R33']
+    }
+    
     param_labels = {
+        # Translation/Position
         'x': 'X Coordinate',
         'y': 'Y Coordinate', 
         'z': 'Z Coordinate',
+        'TX': 'Translation X',
+        'TY': 'Translation Y',
+        'TZ': 'Translation Z',
+        
+        # Rotation
         'pitch': 'Pitch (rad)',
         'yaw': 'Yaw (rad)',
         'roll': 'Roll (rad)',
-        'fov': 'FOV (degrees)'
+        'R11': 'Rotation Matrix R11',
+        'R12': 'Rotation Matrix R12',
+        'R13': 'Rotation Matrix R13',
+        'R21': 'Rotation Matrix R21',
+        'R22': 'Rotation Matrix R22',
+        'R23': 'Rotation Matrix R23',
+        'R31': 'Rotation Matrix R31',
+        'R32': 'Rotation Matrix R32',
+        'R33': 'Rotation Matrix R33',
+        
+        # Camera intrinsics
+        'fov': 'FOV (degrees)',
+        'fx': 'Focal Length X',
+        'fy': 'Focal Length Y',
+        'cx': 'Principal Point X',
+        'cy': 'Principal Point Y'
     }
-    return param_order, param_labels
+    
+    # Auto-detect parameter type if available_params is provided
+    if available_params:
+        available_set = set(available_params)
+        print(f"Auto-detecting parameter type from available parameters: {sorted(available_params)}")
+        
+        # Check which parameter set matches best
+        best_match = None
+        best_overlap = 0
+        
+        for param_type, param_list in default_orders.items():
+            overlap_count = len(available_set.intersection(set(param_list)))
+            coverage = overlap_count / len(param_list) if param_list else 0
+            print(f"  {param_type}: {overlap_count}/{len(param_list)} parameters match (coverage: {coverage:.1%})")
+            
+            if overlap_count > best_overlap:
+                best_overlap = overlap_count
+                best_match = param_type
+        
+        if best_match:
+            print(f"✓ Best match: {best_match} with {best_overlap} overlapping parameters")
+            # Filter to only include available parameters, maintaining order
+            param_order = [p for p in default_orders[best_match] if p in available_set]
+            
+            # Add any remaining parameters that weren't in the best match
+            remaining_params = [p for p in available_params if p not in param_order]
+            if remaining_params:
+                print(f"  Adding remaining parameters: {remaining_params}")
+                param_order.extend(sorted(remaining_params))
+                
+            return param_order, param_labels
+        
+        # If no good match, use all available parameters sorted
+        print("No good parameter type match found, using all available parameters")
+        param_order = sorted(available_params)
+        return param_order, param_labels
+    
+    # Default fallback to transform matrix type
+    print("No parameters provided, using default transform matrix parameter order")
+    return default_orders['transform_matrix'], param_labels
 
 def create_difference_boxplots(diff_df, filename1, filename2, output_dir, stat_type='Mean'):
     """Create box plots for parameter differences."""
     camera_order, color_map = get_camera_order_and_colors()
-    param_order, param_labels = get_param_order_and_labels()
+    
+    # Get available parameters from the data
+    available_params = sorted(diff_df['Parameter'].unique())
+    param_order, param_labels = get_param_order_and_labels(available_params)
     
     # Filter available cameras and parameters
     available_cameras = [cam for cam in camera_order if cam in diff_df['Camera'].unique()]
-    available_params = [param for param in param_order if param in diff_df['Parameter'].unique()]
+    available_params_ordered = [param for param in param_order if param in diff_df['Parameter'].unique()]
     
-    if not available_params:
+    if not available_params_ordered:
         print(f"Warning: No parameters found for {filename1} vs {filename2}")
         return
     
+    print(f"Creating {stat_type} box plots for parameters: {available_params_ordered}")
+    
     # Calculate subplot layout
-    n_params = len(available_params)
+    n_params = len(available_params_ordered)
     n_cols = 3
     n_rows = (n_params + n_cols - 1) // n_cols
     
@@ -168,15 +247,18 @@ def create_difference_boxplots(diff_df, filename1, filename2, output_dir, stat_t
     
     # Handle single row case
     if n_rows == 1:
-        axes = axes.reshape(1, -1)
+        if n_cols == 1:
+            axes = np.array([axes])
+        else:
+            axes = axes.reshape(1, -1)
     elif n_rows == 1 and n_cols == 1:
         axes = np.array([[axes]])
     
     diff_col = f"{stat_type}_Diff"
     
-    for i, param in enumerate(available_params):
+    for i, param in enumerate(available_params_ordered):
         row, col = i // n_cols, i % n_cols
-        ax = axes[row, col]
+        ax = axes[row, col] if n_rows > 1 else axes[col]
         
         label = param_labels.get(param, param)
         
@@ -251,7 +333,10 @@ def create_difference_boxplots(diff_df, filename1, filename2, output_dir, stat_t
     # Hide unused subplots
     for i in range(n_params, n_rows * n_cols):
         row, col = i // n_cols, i % n_cols
-        axes[row, col].set_visible(False)
+        if n_rows > 1:
+            axes[row, col].set_visible(False)
+        else:
+            axes[col].set_visible(False)
     
     plt.tight_layout()
     
@@ -308,6 +393,10 @@ def save_difference_statistics(diff_df, filename1, filename2, output_dir):
     # Save TXT
     txt_path = output_dir / f'diff_{safe_filename1}_vs_{safe_filename2}_statistics.txt'
     
+    # Get available parameters from the data
+    available_params = sorted(diff_df['Parameter'].unique())
+    param_order, param_labels = get_param_order_and_labels(available_params)
+    
     with open(txt_path, 'w') as f:
         header = "="*100 + "\n"
         title = f"CAMERA PARAMETERS DIFFERENCE ANALYSIS\n"
@@ -321,10 +410,9 @@ def save_difference_statistics(diff_df, filename1, filename2, output_dir):
         print(header2.strip())
         
         # Group by parameter
-        param_order, param_labels = get_param_order_and_labels()
-        available_params = [param for param in param_order if param in diff_df['Parameter'].unique()]
+        available_params_ordered = [param for param in param_order if param in diff_df['Parameter'].unique()]
         
-        for param in available_params:
+        for param in available_params_ordered:
             param_data = diff_df[diff_df['Parameter'] == param]
             if param_data.empty:
                 continue
