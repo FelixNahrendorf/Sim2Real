@@ -3,6 +3,7 @@ import math
 import argparse
 import os
 import glob
+import numpy as np
 from decimal import Decimal, getcontext
 from typing import Dict, List, Tuple, Any, Union
 
@@ -168,6 +169,23 @@ def high_precision_asin(x: Union[float, Decimal]) -> Decimal:
     
     return result
 
+
+def flip_y_rotation_matrix(rotation_matrix) -> np.ndarray:
+   
+    flip_matrix= np.array([
+        [1,  0,  0],
+        [0, -1,  0], 
+        [0,  0,  1]
+    ])
+    return flip_matrix @ rotation_matrix @ flip_matrix.T
+
+
+def flip_y_vector(translation_vector_y: float) -> float:
+    translation_vector_y = -translation_vector_y
+    return translation_vector_y
+
+
+
 def quaternion_to_euler_high_precision(q: List[float]) -> Tuple[float, float, float]:
     """
     Convert quaternion to Euler angles (roll, pitch, yaw) with maximum precision.
@@ -204,6 +222,28 @@ def quaternion_to_euler_high_precision(q: List[float]) -> Tuple[float, float, fl
     r31 = 2 * (x*z - w*y)
     r32 = 2 * (y*z + w*x)
     r33 = 1 - 2 * (x*x + y*y)
+
+    rotation_matrix = np.array([
+        [r11, r12, r13],
+        [r21, r22, r23],
+        [r31, r32, r33]
+    ])
+
+    # Y-flip matrix
+    rotation_matrix_y_flip = flip_y_rotation_matrix(rotation_matrix) 
+
+    # Extract elements (0-indexed)
+    r11 = rotation_matrix_y_flip[0, 0]  # First row, first column
+    r12 = rotation_matrix_y_flip[0, 1]  # First row, second column  
+    r13 = rotation_matrix_y_flip[0, 2]  # First row, third column
+    
+    r21 = rotation_matrix_y_flip[1, 0]  # Second row, first column
+    r22 = rotation_matrix_y_flip[1, 1]  # Second row, second column
+    r23 = rotation_matrix_y_flip[1, 2]  # Second row, third column
+    
+    r31 = rotation_matrix_y_flip[2, 0]  # Third row, first column
+    r32 = rotation_matrix_y_flip[2, 1]  # Third row, second column
+    r33 = rotation_matrix_y_flip[2, 2]  # Third row, third column
     
     # Extract Euler angles from rotation matrix (ZYX convention)
     # This provides more stable results than direct quaternion conversion
@@ -301,7 +341,7 @@ def process_camera_calibration(calibration_data: List[Dict]) -> Dict[str, List[f
         if len(translation) >= 3:
             coordinates.append([
                 float(translation[0]),
-                float(translation[1]),
+                float(flip_y_vector(translation[1])),
                 float(translation[2])
             ])
         else:
