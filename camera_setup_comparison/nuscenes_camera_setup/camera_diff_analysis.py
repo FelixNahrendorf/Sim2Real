@@ -118,12 +118,12 @@ def compute_differences(df1, df2, filename1, filename2):
 
 def get_camera_order_and_colors():
     """Get consistent camera order and color mapping."""
-    camera_order = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT',
+    camera_order = ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT', 
                    'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
     color_map = {
         'CAM_FRONT': 'red',
-        'CAM_FRONT_LEFT': 'green', 
         'CAM_FRONT_RIGHT': 'blue',
+        'CAM_FRONT_LEFT': 'green',
         'CAM_BACK': 'orange',
         'CAM_BACK_LEFT': 'black',
         'CAM_BACK_RIGHT': 'yellow'
@@ -138,11 +138,11 @@ def get_param_order_and_labels(available_params=None):
         # Transform matrix parameters (rotation matrix + translation + intrinsics)
         'transform_matrix': ['TX', 'TY', 'TZ', 'R11', 'R12', 'R13', 'R21', 'R22', 'R23', 'R31', 'R32', 'R33', 'fx', 'fy', 'cx', 'cy'],
         # Pose parameters (position + orientation + FOV)
-        'pose': ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'fov'],
+        'pose': ['x', 'y', 'z', 'roll','pitch', 'yaw', 'fov'],
         # Intrinsics only
         'intrinsics': ['fx', 'fy', 'cx', 'cy', 'fov'],
         # Extrinsics only  
-        'extrinsics': ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'TX', 'TY', 'TZ'],
+        'extrinsics': ['x', 'y', 'z', 'roll', 'pitch', 'yaw',  'TX', 'TY', 'TZ'],
         # Rotation matrix only
         'rotation_matrix': ['R11', 'R12', 'R13', 'R21', 'R22', 'R23', 'R31', 'R32', 'R33']
     }
@@ -157,9 +157,9 @@ def get_param_order_and_labels(available_params=None):
         'TZ': 'Translation Z',
         
         # Rotation
+        'roll': 'Roll (rad)',
         'pitch': 'Pitch (rad)',
         'yaw': 'Yaw (rad)',
-        'roll': 'Roll (rad)',
         'R11': 'Rotation Matrix R11',
         'R12': 'Rotation Matrix R12',
         'R13': 'Rotation Matrix R13',
