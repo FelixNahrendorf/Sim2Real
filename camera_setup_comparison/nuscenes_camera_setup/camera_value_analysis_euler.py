@@ -179,12 +179,12 @@ def create_visualization(camera_data, camera_stats, output_dir):
         return
     
     # Define consistent camera order and colors
-    camera_order = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT',
+    camera_order = ['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT',
                    'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
     color_map = {
         'CAM_FRONT': 'red',
-        'CAM_FRONT_LEFT': 'green', 
         'CAM_FRONT_RIGHT': 'blue',
+        'CAM_FRONT_LEFT': 'green',
         'CAM_BACK': 'orange',
         'CAM_BACK_LEFT': 'black',
         'CAM_BACK_RIGHT': 'yellow'
@@ -254,8 +254,8 @@ def create_visualization(camera_data, camera_stats, output_dir):
     plt.tight_layout()
     
     # Save the plot
-    png_path = output_dir / 'camera_parameters_distribution.png'
-    svg_path = output_dir / 'camera_parameters_distribution.svg'
+    png_path = output_dir / 'Nuscene_camera_parameters_distribution.png'
+    svg_path = output_dir / 'Nuscene_camera_parameters_distribution.svg'
     
     plt.savefig(png_path, dpi=300, bbox_inches='tight')
     plt.savefig(svg_path, bbox_inches='tight')
@@ -281,12 +281,12 @@ def create_individual_camera_plots(camera_data, camera_stats, output_dir):
     n_rows = (n_params + n_cols - 1) // n_cols  # Ceiling division
     
     # Define consistent camera order and colors
-    camera_order = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT',
+    camera_order = ['CAM_FRONT',  'CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT',
                    'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
     color_map = {
         'CAM_FRONT': 'red',
-        'CAM_FRONT_LEFT': 'green', 
         'CAM_FRONT_RIGHT': 'blue',
+        'CAM_FRONT_LEFT': 'green',
         'CAM_BACK': 'orange',
         'CAM_BACK_LEFT': 'black',
         'CAM_BACK_RIGHT': 'yellow'
@@ -437,12 +437,12 @@ def create_box_plots(camera_data, camera_stats, output_dir):
     n_rows = (n_params + n_cols - 1) // n_cols  # Ceiling division
     
     # Define consistent camera order and colors
-    camera_order = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT',
+    camera_order = ['CAM_FRONT','CAM_FRONT_RIGHT', 'CAM_FRONT_LEFT', 
                    'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
     color_map = {
         'CAM_FRONT': 'red',
-        'CAM_FRONT_LEFT': 'green', 
         'CAM_FRONT_RIGHT': 'blue',
+        'CAM_FRONT_LEFT': 'green', 
         'CAM_BACK': 'orange',
         'CAM_BACK_LEFT': 'black',
         'CAM_BACK_RIGHT': 'yellow'
@@ -537,8 +537,8 @@ def create_box_plots(camera_data, camera_stats, output_dir):
     plt.tight_layout()
     
     # Save the plot
-    png_path = output_dir / 'camera_parameters_boxplots.png'
-    svg_path = output_dir / 'camera_parameters_boxplots.svg'
+    png_path = output_dir / 'Nuscene_camera_parameters_boxplots.png'
+    svg_path = output_dir / 'Nuscene_camera_parameters_boxplots.svg'
     
     plt.savefig(png_path, dpi=300, bbox_inches='tight')
     plt.savefig(svg_path, bbox_inches='tight')
@@ -564,7 +564,7 @@ def create_statistics_table(camera_stats, output_dir):
     params[3]=params_swap
     
     # Create output file
-    stats_file = output_dir / 'camera_parameters_statistics.txt'
+    stats_file = output_dir / 'Nuscene_camera_parameters_statistics.txt'
     
     with open(stats_file, 'w') as f:
         # Write to file and print to console
@@ -615,7 +615,7 @@ def save_statistics_csv(camera_stats, output_dir):
             all_stats.append(row)
     
     df = pd.DataFrame(all_stats)
-    csv_path = output_dir / 'camera_parameters_statistics.csv'
+    csv_path = output_dir / 'Nuscene_camera_poses.csv'
     df.to_csv(csv_path, index=False)
     print(f"✓ Statistics saved to '{csv_path}'")
 
