@@ -18,7 +18,8 @@ def apply_coordinate_transformation(position):
     z_new = -y_old
     """
     x_old, y_old, z_old = position
-    return np.array([-z_old, x_old, -y_old])
+    x_offset = x_old #- 0.9 #only for analysis: comparison with nuscenes_adjusted.json
+    return np.array([x_offset, -y_old, z_old])
 
 
 def apply_rotation_transformation(quaternion):
@@ -30,13 +31,13 @@ def apply_rotation_transformation(quaternion):
     
     # Transformation matrix
     T = np.array([
-        [ 0,  0, -1],
         [ 1,  0,  0],
-        [ 0, -1,  0]
+        [ 0,  -1,  0],
+        [ 0,  0,  1]
     ])
-    
+
     # Apply transformation: R_new = T * R_old
-    transformed_rotation_matrix = T @ rotation_matrix
+    transformed_rotation_matrix = T @ rotation_matrix @ T.T
     
     # Convert back to quaternion
     transformed_quaternion = Quaternion(matrix=transformed_rotation_matrix)
@@ -86,10 +87,6 @@ def transform_camera_poses(camera_input_data):
             # Assume [w, x, y, z] format
             rot = data['rotation']
             original_quaternion = Quaternion(w=rot[0], x=rot[1], y=rot[2], z=rot[3])
-        
-        # Apply x-axis flip
-        x_axis_flip = Quaternion(axis=[1, 0, 0], angle=np.pi)
-        original_quaternion = original_quaternion * x_axis_flip
         
         # Apply coordinate transformation
         transformed_translation = apply_coordinate_transformation(original_translation)
@@ -155,46 +152,78 @@ def transform_camera_poses(camera_input_data):
 
 def rotation_matrix_to_euler_robust(R):
     """
-    Convert rotation matrix to Euler angles (roll, pitch, yaw) with robust handling of singularities.
-    Uses ZYX convention (yaw-pitch-roll) which is more stable for camera poses.
+    Convert rotation matrix to Euler angles using the specified mathematical formulation.
+    
+    Implementation of:
+    if (R31 != ±1)
+        theta_1 = -asin(R31)
+        theta_2 = pi - theta_1
+        psi_1 = atan2(R32/cos theta_1, R33/cos theta_1)
+        psi_2 = atan2(R32/cos theta_2, R33/cos theta_2)
+        phi_1 = atan2(R21/cos theta_1, R11/cos theta_1)
+        phi_2 = atan2(R21/cos theta_2, R11/cos theta_2)
+    else
+        phi = 0  # can set to anything
+        if (R31 = -1)
+            theta = pi/2
+            psi = phi + atan2(R12, R13)
+        else
+            theta = -pi/2
+            psi = -phi + atan2(-R12, -R13)
     
     Args:
         R: 3x3 rotation matrix
     
     Returns:
-        tuple: (roll, pitch, yaw) in radians
+        tuple: (phi, theta, psi) in radians (roll, pitch, yaw)
     """
     # Ensure numerical precision
     R = np.array(R, dtype=np.float64)
     
-    # Extract pitch from R[2,0] = -sin(pitch)
-    sin_pitch = -R[2, 0]
-    
-    # Clamp to avoid numerical issues
-    sin_pitch = np.clip(sin_pitch, -1.0, 1.0)
-    pitch = np.arcsin(sin_pitch)
-    
-    # Check for gimbal lock (pitch close to ±90 degrees)
-    cos_pitch = np.cos(pitch)
-    
-    if np.abs(cos_pitch) < 1e-6:  # Near gimbal lock
-        # Set roll to 0 and compute yaw
-        roll = 0.0
-        if sin_pitch > 0:  # pitch = +90°
-            yaw = np.arctan2(-R[0, 1], R[1, 1])
-        else:  # pitch = -90°
-            yaw = np.arctan2(R[0, 1], R[1, 1])
-    else:
-        # Normal case - no gimbal lock
-        # roll from R[2,1]/cos(pitch) = sin(roll) and R[2,2]/cos(pitch) = cos(roll)
-        roll = np.arctan2(R[2, 1] / cos_pitch, R[2, 2] / cos_pitch)
+    # Check if R31 != ±1 (not at singularity)
+    if abs(R[2, 0]) != 1.0 and abs(R[2, 0]) != -1.0:
+        # Two possible solutions
+        theta_1 = -np.arcsin(R[2, 0]) # asin(R31)
+        theta_2 = np.pi - theta_1
         
-        # yaw from R[1,0]/cos(pitch) = sin(yaw) and R[0,0]/cos(pitch) = cos(yaw)
-        yaw = np.arctan2(R[1, 0] / cos_pitch, R[0, 0] / cos_pitch)
+        # Compute corresponding psi and phi values
+        cos_theta_1 = np.cos(theta_1)
+        cos_theta_2 = np.cos(theta_2)
+        
+        psi_1 = np.arctan2(R[2, 1] / cos_theta_1, R[2, 2] / cos_theta_1) # atan2(R32/cos theta_1, R33/cos theta_1)
+        psi_2 = np.arctan2(R[2, 1] / cos_theta_2, R[2, 2] / cos_theta_2) # atan2(R32/cos theta_2, R33/cos theta_2)
+        
+        phi_1 = np.arctan2(R[1, 0] / cos_theta_1, R[0, 0] / cos_theta_1) # atan2(R21/cos theta_1, R11/cos theta_1)
+        phi_2 = np.arctan2(R[1, 0] / cos_theta_2, R[0, 0] / cos_theta_2) # atan2(R21/cos theta_2, R11/cos theta_2)
+        
+        # Choose the first solution (could implement additional criteria to choose)
+        phi = phi_1
+        theta = theta_1
+        psi = psi_1
+        
+    else:
+        # Singularity case: R31 = ±1
+        phi = 0.0  # Set to 0 as suggested
+        
+        if R[2, 0] == -1.0:  # R31 = -1
+            theta = np.pi / 2
+            psi = phi + np.arctan2(R[0, 1], R[0, 2]) # atan2(R12, R13)
+        else:  # R31 = 1
+            theta = -np.pi / 2
+            psi = -phi + np.arctan2(-R[0, 1], -R[0, 2]) # atan2(-R12, -R13)
 
+    roll = psi
+    pitch = theta
+    yaw = phi
+
+    if yaw < 0:
+        yaw = -yaw
+    else:
+        yaw = -yaw +2*np.pi
+    roll = -roll
     
+    #roll = 0.0 # #only for analysis: comparison with nuscenes_adjusted.json
     return roll, pitch, yaw
-
 
 def quaternion_to_euler_robust(quaternion):
     """
@@ -251,10 +280,6 @@ def extract_transform_data(transformed_json, input_file):
         rotation_matrix = transform_matrix[:3, :3]
         roll, pitch, yaw = rotation_matrix_to_euler_robust(rotation_matrix)
 
-        # Due to the coordinate system transformation, there is numerical instability, we need to adjust roll for specific cameras
-        if 'CAM_BACK_RIGHT' in input_file:
-            roll = abs(roll)  # Ensure roll is positive for back right camera
-
         rolls.append(roll)
         pitches.append(pitch)
         yaws.append(yaw)
@@ -307,6 +332,7 @@ def process_camera_file(input_file, output_dir=None):
     # Generate output filename
     input_path = Path(input_file)
     output_filename = f"{input_path.stem}_transformed.json"
+    print(f"Output filename: {output_filename}")
     
     if output_dir:
         output_path = Path(output_dir) / output_filename
@@ -343,6 +369,7 @@ def main():
     
     # Find all CAM_*.json files in the directory
     input_files = list(input_path.glob("CAM_*.json"))
+    print('Found these files:', input_files)
     
     if not input_files:
         print(f"No CAM_*.json files found in {args.input_path}")
