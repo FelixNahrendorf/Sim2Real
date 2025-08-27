@@ -438,7 +438,8 @@ def process_nerf_data(nerf_data: Dict) -> Dict[str, List[float]]:
     image_width = nerf_data.get("w", 1600)
     
     # Calculate FOV once for all frames (assuming same camera)
-    fov_value = calculate_fov_from_focal_length(fl_x, image_width)
+    #fov_value = calculate_fov_from_focal_length(fl_x, image_width)
+    fov_value = 90.0  # Default FOV value, can be adjusted if needed
     
     # For continuity checking
     previous_yaw = None
@@ -452,12 +453,10 @@ def process_nerf_data(nerf_data: Dict) -> Dict[str, List[float]]:
         if not isinstance(frame, dict):
             continue
         
-        print('counter1: ', counter)
         transform_matrix = frame.get("transform_matrix", [])
         if len(transform_matrix) != 4 or any(len(row) != 4 for row in transform_matrix):
             print(f"Warning: Invalid transform matrix format")
             continue
-        print('counter2: ', counter)
         try:
             # Extract translation vector
             translation = extract_translation_from_transform_matrix(transform_matrix)
@@ -467,7 +466,6 @@ def process_nerf_data(nerf_data: Dict) -> Dict[str, List[float]]:
                 float(translation[1]),
                 float(translation[2])
             ])
-            print('counter3: ', counter)
             
             # Extract rotation matrix and convert to Euler angles
             rotation_matrix = extract_rotation_from_transform_matrix(transform_matrix)
@@ -491,8 +489,10 @@ def process_nerf_data(nerf_data: Dict) -> Dict[str, List[float]]:
                     roll += 2 * pi
 
             target_index = counter % 6
-            print('target_index:', target_index)
-            print('counter4: ', counter)
+
+            #rolls.append(roll)
+            #pitchs.append(pitch)
+            #yaws.append(yaw)
 
             rolls.append(adjust_to_target(roll, target_rolls[target_index]))
             pitchs.append(adjust_to_target(pitch, target_pitchs[target_index]))
@@ -513,7 +513,6 @@ def process_nerf_data(nerf_data: Dict) -> Dict[str, List[float]]:
             pitchs.append(0.0)
             yaws.append(0.0)
             fovs.append(90.0)
-        print('counter5: ', counter)
 
         
     
