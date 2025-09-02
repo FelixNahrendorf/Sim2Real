@@ -16,7 +16,7 @@ Usage:
     python visualize_poses.py <path1> <path2> ... <pathN>
 
 Example:
-    python visualize_poses.py /app/code/seed4d/data_nuscenes_adjusted/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+    python3 transforms_camera_pose_visualizer_origins.py /app/code/seed4d/data_nuscenes_adjusted/Town01/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
 """
 
 import json

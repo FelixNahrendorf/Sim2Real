@@ -1,0 +1,13 @@
+Dataset,Sensor,X,Y,Z,File_Path
+data,0,-1.494913,1.722006,-0.004755,/app/inputs/seed4d/data/data_baseline_7cams_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,1,-1.517494,1.580826,0.499079,/app/inputs/seed4d/data/data_baseline_7cams_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,2,-1.506960,1.575256,-0.500519,/app/inputs/seed4d/data/data_baseline_7cams_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,3,-1.567943,0.055246,-0.010788,/app/inputs/seed4d/data/data_baseline_7cams_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,4,-1.562101,1.048520,-0.483058,/app/inputs/seed4d/data/data_baseline_7cams_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,5,-1.550508,1.059452,0.467203,/app/inputs/seed4d/data/data_baseline_7cams_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,0,-1.502868,1.711547,-0.009254,/app/inputs/seed4d/data/data_7cams_all_nuscene_mean_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,1,-1.507845,1.567533,0.497015,/app/inputs/seed4d/data/data_7cams_all_nuscene_mean_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,2,-1.508522,1.551907,-0.497363,/app/inputs/seed4d/data/data_7cams_all_nuscene_mean_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,3,-1.572496,0.043659,-0.007168,/app/inputs/seed4d/data/data_7cams_all_nuscene_mean_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,4,-1.575867,1.042854,-0.483099,/app/inputs/seed4d/data/data_7cams_all_nuscene_mean_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
+data,5,-1.556650,1.039059,0.473027,/app/inputs/seed4d/data/data_7cams_all_nuscene_mean_check/Town02/ClearNoon/vehicle.audi.tt/spawn_point_1/step_0/ego_vehicle/nuscenes_invisible/transforms/transforms_ego.json
