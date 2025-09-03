@@ -79,7 +79,7 @@ def plot_coordinate_system(ax, position, rotation, scale=0.1, alpha=0.7):
                 [position[2], end_point[2]], 
                 color=color, linewidth=2, alpha=alpha)
 
-def write_ply_file(file_paths, output_path='sensor_poses.ply'):
+def write_ply_file(file_paths, output_path='sensor_poses_origins.ply'):
     """Write sensor poses to PLY file format for 3D viewing"""
     vertices = []
     faces = []
@@ -168,7 +168,7 @@ def write_ply_file(file_paths, output_path='sensor_poses.ply'):
     
     print(f"PLY file saved to: {output_path}")
 
-def create_interactive_plotly(file_paths, output_path='sensor_poses.html'):
+def create_interactive_plotly(file_paths, output_path='sensor_poses_origins.html'):
     """Create interactive 3D visualization using Plotly"""
     fig = go.Figure()
     
@@ -678,7 +678,7 @@ def save_coordinates_csv(file_paths, output_path='sensor_coordinates.csv'):
     
     return coordinate_data
 
-def plot_sensor_poses_matplotlib(file_paths, output_path='sensor_poses.png'):
+def plot_sensor_poses_matplotlib(file_paths, output_path='sensor_poses_origins.png'):
     """Plot all sensor poses from multiple files using matplotlib"""
     fig = plt.figure(figsize=(15, 12))
     ax = fig.add_subplot(111, projection='3d')
