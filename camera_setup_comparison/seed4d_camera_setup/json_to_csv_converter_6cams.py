@@ -74,9 +74,9 @@ def convert_json_to_csv(json_file_path, output_csv_path, verbose=True):
         fov = data['fov'][i]
         
         # Remap coordinates: json_x -> z, json_y -> x, json_z -> y
-        x = json_y  # JSON y becomes x
-        y = json_z  # JSON z becomes y
-        z = json_x  # JSON x becomes z
+        x = json_x  # JSON y becomes x
+        y = json_y  # JSON z becomes y
+        z = json_z  # JSON x becomes z
         
         # Note: Since we only have single values, we'll use them as mean
         # and set other statistics to 0 or the same value
