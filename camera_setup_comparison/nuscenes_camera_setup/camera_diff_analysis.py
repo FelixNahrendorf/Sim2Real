@@ -26,7 +26,7 @@ def load_camera_csv(file_path):
     """Load camera statistics from CSV file."""
     try:
         df = pd.read_csv(file_path)
-        print(f"✓ Loaded {len(df)} records from {file_path}")
+        print(f"✅ Loaded {len(df)} records from {file_path}")
         
         # Clean up column names (remove whitespace)
         df.columns = df.columns.str.strip()
@@ -76,7 +76,7 @@ def compute_differences(df1, df2, filename1, filename2):
         
         return None
     
-    print(f"✓ Found {len(merged)} matching camera-parameter combinations")
+    print(f"✅ Found {len(merged)} matching camera-parameter combinations")
     
     # Show matched combinations
     matched_combos = []
@@ -112,7 +112,7 @@ def compute_differences(df1, df2, filename1, filename2):
         diff_data.append(diff_row)
     
     result_df = pd.DataFrame(diff_data)
-    print(f"✓ Computed differences for {len(result_df)} combinations")
+    print(f"✅ Computed differences for {len(result_df)} combinations")
     
     return result_df
 
@@ -197,7 +197,7 @@ def get_param_order_and_labels(available_params=None):
                 best_match = param_type
         
         if best_match:
-            print(f"✓ Best match: {best_match} with {best_overlap} overlapping parameters")
+            print(f"✅ Best match: {best_match} with {best_overlap} overlapping parameters")
             # Filter to only include available parameters, maintaining order
             param_order = [p for p in default_orders[best_match] if p in available_set]
             
@@ -350,7 +350,239 @@ def create_difference_boxplots(diff_df, filename1, filename2, output_dir, stat_t
     
     plt.savefig(png_path, dpi=300, bbox_inches='tight')
     plt.savefig(svg_path, bbox_inches='tight')
-    print(f"✓ Difference box plots saved as '{png_path}' and '{svg_path}'")
+    print(f"✅ Difference box plots saved as '{png_path}' and '{svg_path}'")
+    
+    plt.close()
+
+def create_combined_differences_plot(diff_df, filename1, filename2, output_dir, stat_type='Mean'):
+    """Create combined differences plot with X,Y,Z, FOV, Pitch, and Yaw differences in 2x2 layout."""
+    camera_order, color_map = get_camera_order_and_colors()
+    
+    # Filter available cameras
+    available_cameras = [cam for cam in camera_order if cam in diff_df['Camera'].unique()]
+    
+    if not available_cameras:
+        print(f"Warning: No cameras found for {filename1} vs {filename2}")
+        return
+    
+    print(f"Creating combined differences plot for {stat_type} statistics")
+    
+    # Create 2x2 subplot layout with square plots
+    plt.style.use('default')
+    fig, axes = plt.subplots(2, 2, figsize=(12, 12))  # Square figure for square subplots
+    fig.suptitle(f'Combined Parameter Differences - {stat_type}\nDifference between {filename2} and {filename1}', 
+                fontsize=14, fontweight='bold')
+    
+    diff_col = f"{stat_type}_Diff"
+    val1_col = f"{stat_type}_1"
+    val2_col = f"{stat_type}_2"
+    
+    # Data storage for table creation
+    table_data = {}
+    
+    # Compute combined X,Y,Z difference (percentage-based)
+    combined_xyz_data = []
+    combined_xyz_labels = []
+    combined_xyz_colors = []
+    
+    for camera_name in available_cameras:
+        x_data = diff_df[(diff_df['Camera'] == camera_name) & (diff_df['Parameter'] == 'x')]
+        y_data = diff_df[(diff_df['Camera'] == camera_name) & (diff_df['Parameter'] == 'y')]
+        z_data = diff_df[(diff_df['Camera'] == camera_name) & (diff_df['Parameter'] == 'z')]
+        
+        if not x_data.empty and not y_data.empty and not z_data.empty:
+            # Get the already computed absolute differences and the original values from file 1
+            x_diff = x_data[diff_col].iloc[0] if diff_col in x_data.columns else np.nan
+            x_val1 = x_data[val1_col].iloc[0] if val1_col in x_data.columns else np.nan
+            
+            y_diff = y_data[diff_col].iloc[0] if diff_col in y_data.columns else np.nan
+            y_val1 = y_data[val1_col].iloc[0] if val1_col in y_data.columns else np.nan
+            
+            z_diff = z_data[diff_col].iloc[0] if diff_col in z_data.columns else np.nan
+            z_val1 = z_data[val1_col].iloc[0] if val1_col in z_data.columns else np.nan
+            
+            # Convert each absolute difference to percentage relative to file 1 value
+            percentages = []
+            for diff_val, val1 in [(x_diff, x_val1), (y_diff, y_val1), (z_diff, z_val1)]:
+                if pd.notna(diff_val) and pd.notna(val1) and val1 != 0:
+                    percentage_diff = (diff_val / abs(val1)) * 100
+                    percentages.append(percentage_diff)
+            
+            if percentages:
+                # Sum the three percentage differences and divide by 3
+                combined_percentage = sum(percentages) / 3
+                combined_xyz_data.append([combined_percentage])
+                combined_xyz_labels.append(camera_name.replace('CAM_', ''))
+                combined_xyz_colors.append(color_map[camera_name])
+                
+                # Store for table
+                table_data[camera_name] = {'Combined X,Y,Z (%)': combined_percentage}
+    
+    # Plot 1: Combined X,Y,Z Difference (top-left)
+    ax = axes[0, 0]
+    if combined_xyz_data:
+        bp = ax.boxplot(combined_xyz_data, labels=combined_xyz_labels, patch_artist=True,
+                       boxprops=dict(linewidth=1.5),
+                       whiskerprops=dict(linewidth=1.5),
+                       capprops=dict(linewidth=1.5),
+                       medianprops=dict(linewidth=2, color='darkred'))
+        
+        for patch, color in zip(bp['boxes'], combined_xyz_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+            patch.set_edgecolor('black')
+    
+    ax.set_title('Combined X,Y,Z Difference (%)')
+    ax.set_ylabel('Percentage Difference (%)')
+    ax.grid(True, alpha=0.3)
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    
+    # Helper function to create single parameter plot and collect data for table
+    def create_single_param_plot(ax, param_name, title, ylabel):
+        param_data = diff_df[diff_df['Parameter'] == param_name]
+        
+        if param_data.empty:
+            ax.text(0.5, 0.5, f'No data for {param_name}', transform=ax.transAxes, 
+                   ha='center', va='center', fontsize=12)
+            ax.set_title(title)
+            return
+        
+        data_for_boxplot = []
+        labels = []
+        colors = []
+        
+        for camera_name in available_cameras:
+            camera_data = param_data[param_data['Camera'] == camera_name]
+            if not camera_data.empty and diff_col in camera_data.columns:
+                diff_values = camera_data[diff_col].values
+                if len(diff_values) > 0 and not np.isnan(diff_values).all():
+                    data_for_boxplot.append(diff_values)
+                    labels.append(camera_name.replace('CAM_', ''))
+                    colors.append(color_map[camera_name])
+                    
+                    # Store for table
+                    mean_val = np.mean(diff_values)
+                    if camera_name not in table_data:
+                        table_data[camera_name] = {}
+                    table_data[camera_name][param_name] = mean_val
+        
+        if data_for_boxplot:
+            bp = ax.boxplot(data_for_boxplot, labels=labels, patch_artist=True,
+                           boxprops=dict(linewidth=1.5),
+                           whiskerprops=dict(linewidth=1.5),
+                           capprops=dict(linewidth=1.5),
+                           medianprops=dict(linewidth=2, color='darkred'))
+            
+            for patch, color in zip(bp['boxes'], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+                patch.set_edgecolor('black')
+            
+            # Add zero reference line
+            ax.axhline(y=0, color='red', linestyle='--', alpha=0.8, linewidth=1)
+        
+        ax.set_title(title)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.3)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    
+    # Plot 2: FOV Difference (top-right)
+    create_single_param_plot(axes[0, 1], 'fov', 'FOV Difference', 'FOV Difference (degrees)')
+    
+    # Plot 3: Pitch Difference (bottom-left)
+    create_single_param_plot(axes[1, 0], 'pitch', 'Pitch Difference', 'Pitch Difference (rad)')
+    
+    # Plot 4: Yaw Difference (bottom-right)
+    create_single_param_plot(axes[1, 1], 'yaw', 'Yaw Difference', 'Yaw Difference (rad)')
+    
+    plt.tight_layout()
+    
+    # Save the plot
+    safe_filename1 = "".join(c for c in filename1 if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    safe_filename2 = "".join(c for c in filename2 if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    
+    png_path = output_dir / f'diff_{safe_filename1}_vs_{safe_filename2}_{stat_type}_combined.png'
+    
+    plt.savefig(png_path, dpi=300, bbox_inches='tight')
+    print(f"✅ Combined differences plot saved as '{png_path}'")
+    
+    plt.close()
+    
+    # Create and save table
+    create_combined_differences_table(table_data, filename1, filename2, output_dir, stat_type, available_cameras)
+
+def create_combined_differences_table(table_data, filename1, filename2, output_dir, stat_type, available_cameras):
+    """Create a table showing the combined differences data as a PNG."""
+    if not table_data:
+        print(f"Warning: No table data available for {filename1} vs {filename2}")
+        return
+    
+    # Prepare table data
+    parameters = ['Combined X,Y,Z (%)', 'fov', 'pitch', 'yaw']
+    camera_labels = [cam.replace('CAM_', '') for cam in available_cameras if cam in table_data]
+    
+    # Create table data matrix
+    table_matrix = []
+    for param in parameters:
+        row = []
+        for camera in available_cameras:
+            if camera in table_data and param in table_data[camera]:
+                value = table_data[camera][param]
+                if param == 'Combined X,Y,Z (%)':
+                    row.append(f"{value:.3f}%")
+                else:
+                    row.append(f"{value:.6f}")
+            else:
+                row.append("N/A")
+        table_matrix.append(row)
+    
+    # Create figure for table
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.axis('tight')
+    ax.axis('off')
+    
+    # Create table
+    table = ax.table(cellText=table_matrix,
+                    rowLabels=parameters,
+                    colLabels=camera_labels,
+                    cellLoc='center',
+                    loc='center',
+                    bbox=[0, 0, 1, 1])
+    
+    # Style the table
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 2)
+    
+    # Color header row and column
+    for i in range(len(camera_labels)):
+        table[(0, i)].set_facecolor('#4CAF50')
+        table[(0, i)].set_text_props(weight='bold', color='white')
+    
+    for i in range(len(parameters)):
+        table[(i+1, -1)].set_facecolor('#2196F3')
+        table[(i+1, -1)].set_text_props(weight='bold', color='white')
+    
+    # Alternate row colors
+    for i in range(1, len(parameters) + 1):
+        for j in range(len(camera_labels)):
+            if i % 2 == 0:
+                table[(i, j)].set_facecolor('#f0f0f0')
+            else:
+                table[(i, j)].set_facecolor('white')
+    
+    # Set title
+    plt.title(f'Combined Parameter Differences Table - {stat_type}\nDifference between {filename2} and {filename1}', 
+              fontsize=14, fontweight='bold', pad=20)
+    
+    # Save table
+    safe_filename1 = "".join(c for c in filename1 if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    safe_filename2 = "".join(c for c in filename2 if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    
+    table_path = output_dir / f'diff_{safe_filename1}_vs_{safe_filename2}_{stat_type}_combined_table.png'
+    
+    plt.savefig(table_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+    print(f"✅ Combined differences table saved as '{table_path}'")
     
     plt.close()
 
@@ -389,7 +621,7 @@ def save_difference_statistics(diff_df, filename1, filename2, output_dir):
     if csv_data:
         csv_df = pd.DataFrame(csv_data)
         csv_df.to_csv(csv_path, index=False)
-        print(f"✓ Difference statistics saved to '{csv_path}'")
+        print(f"✅ Difference statistics saved to '{csv_path}'")
     
     # Save TXT
     txt_path = output_dir / f'diff_{safe_filename1}_vs_{safe_filename2}_statistics.txt'
@@ -453,7 +685,7 @@ def save_difference_statistics(diff_df, filename1, filename2, output_dir):
                                 f.write(line)
                                 print(line.strip())
     
-    print(f"✓ Difference statistics saved to '{txt_path}'")
+    print(f"✅ Difference statistics saved to '{txt_path}'")
 
 def analyze_differences(csv_files, output_dir):
     """Analyze differences between all combinations of CSV files."""
@@ -476,7 +708,7 @@ def analyze_differences(csv_files, output_dir):
         print("Error: Need at least 2 valid CSV files to compute differences")
         return
     
-    print(f"\n✓ Loaded {len(dataframes)} CSV files")
+    print(f"\n✅ Loaded {len(dataframes)} CSV files")
     
     # Compute differences for all combinations
     file_list = list(dataframes.keys())
@@ -501,6 +733,9 @@ def analyze_differences(csv_files, output_dir):
             for stat_type in stat_types:
                 if f"{stat_type}_Diff" in diff_df.columns:
                     create_difference_boxplots(diff_df, filename1, filename2, output_dir, stat_type)
+                    # Create combined differences plot (only for Mean statistic to avoid redundancy)
+                    if stat_type == 'Mean':
+                        create_combined_differences_plot(diff_df, filename1, filename2, output_dir, stat_type)
             
             # Save statistics
             save_difference_statistics(diff_df, filename1, filename2, output_dir)
@@ -556,7 +791,7 @@ Examples:
     # Analyze differences
     analyze_differences(args.csv_files, output_dir)
     
-    print(f"\n✓ Analysis complete! All results saved to: {output_dir.absolute()}")
+    print(f"\n✅ Analysis complete! All results saved to: {output_dir.absolute()}")
 
 if __name__ == "__main__":
     main()
