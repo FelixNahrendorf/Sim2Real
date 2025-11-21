@@ -222,7 +222,7 @@ def rotation_matrix_to_euler_robust(R):
         yaw = -yaw +2*np.pi
     roll = -roll
     
-    #roll = 0.0 # #only for analysis: comparison with nuscenes_adjusted.json
+    roll = 0.0 # #only for analysis: comparison with nuscenes_adjusted.json
     return roll, pitch, yaw
 
 def quaternion_to_euler_robust(quaternion):
