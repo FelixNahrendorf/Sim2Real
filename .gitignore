@@ -40,3 +40,13 @@
 /camera_sensitivity_analysis/image_quality_analysis_seed4d
 /camera_sensitivity_analysis/nuscene_seed4d_image_quality_comparison
 /camera_sensitivity_analysis/results_all
+
+#domain adaptation
+/domain_adaptation/nuscene_night_scenes_felix/find_threshold
+/domain_adaptation/nuscene_night_scenes_felix/night_samples_v1.0-test
+/domain_adaptation/nuscene_night_scenes_felix/night_samples_v1.0-trainval
+
+/domain_adaptation/nuscene_night_scenes_marius_txt/dark_samples_v1.0-test
+/domain_adaptation/nuscene_night_scenes_marius_txt/dark_samples_v1.0-trainval
+/domain_adaptation/nuscene_night_scenes_marius_txt/first_dark_sample_v1_0-test_0023e53e
+/domain_adaptation/nuscene_night_scenes_marius_txt/first_dark_sample_v1_0-trainval_00014584
