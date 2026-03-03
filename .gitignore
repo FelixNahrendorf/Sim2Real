@@ -23,6 +23,7 @@
 /camera_setup_comparison/nuscenes_camera_setup/v1.0-trainval_analysis_transformed_+0.9
 /camera_setup_comparison/nuscenes_camera_setup/v1.0-trainval_analysis_transformed_update
 /camera_setup_comparison/nuscenes_camera_setup/results_all
+/camera_setup_comparison/nuscenes_camera_setup/data
 
 
 #seed4d
@@ -32,6 +33,10 @@
 /camera_setup_comparison/seed4d_nuscenes_camera_diff_ego_transform_matrix
 /nuscene_temporal_difference_comparison
 /camera_setup_comparison/seed4d_camera_setup/results_all
+/camera_setup_comparison/carla_seed4d_nuscenes_camera_diff_adjusted_fov
+/camera_setup_comparison/seed4d_camera_setup/data
+/camera_setup_comparison/carla_theo_camera_setup/data
+/camera_setup_comparison/data
 
 
 #camera sensitivity analysis
@@ -40,13 +45,24 @@
 /camera_sensitivity_analysis/image_quality_analysis_seed4d
 /camera_sensitivity_analysis/nuscene_seed4d_image_quality_comparison
 /camera_sensitivity_analysis/results_all
+/camera_sensitivity_analysis/data
 
 #domain adaptation
 /domain_adaptation/nuscene_night_scenes_felix/find_threshold
 /domain_adaptation/nuscene_night_scenes_felix/night_samples_v1.0-test
 /domain_adaptation/nuscene_night_scenes_felix/night_samples_v1.0-trainval
+/domain_adaptation/nuscene_night_scenes_felix/night_samples/night_images_v1.0-trainval_robust
 
 /domain_adaptation/nuscene_night_scenes_marius_txt/dark_samples_v1.0-test
 /domain_adaptation/nuscene_night_scenes_marius_txt/dark_samples_v1.0-trainval
 /domain_adaptation/nuscene_night_scenes_marius_txt/first_dark_sample_v1_0-test_0023e53e
 /domain_adaptation/nuscene_night_scenes_marius_txt/first_dark_sample_v1_0-trainval_00014584
+/domain_adaptation/nuscene_night_scenes_felix/data
+/domain_adaptation/texture_adaptation/flux2/outputs
+/domain_adaptation/texture_adaptation/flux2/outputs_flux2_9B_remaster
+/domain_adaptation/texture_adaptation/flux2/outputs_root
+
+
+
+
+
