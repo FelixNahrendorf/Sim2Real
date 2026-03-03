@@ -4,6 +4,7 @@ Image Quality Analysis Tool with GPU Acceleration and Chromatic Aberration Detec
 Analyzes brightness, sharpness, vignetting, compression artifacts, noise, chromatic aberration,
 saturation, laplacian variance, and FFT power spectrum for images in camera directories.
 """
+
 import os
 import cv2
 import numpy as np
@@ -23,6 +24,7 @@ from queue import Queue
 import random
 warnings.filterwarnings('ignore')
 
+
 ALL_METRICS = [
     'brightness', 'sharpness', 'vignetting', 'compression_artifacts',
     'noise', 'chromatic_aberration', 'saturation', 'laplacian_variance', 'fft_power_spectrum'
@@ -41,8 +43,59 @@ METRIC_TITLES = {
 }
 
 
+def load_night_scene_filenames(trainval_txt, test_txt, nuscenes_dataroot):
+    """
+    Merge night scene sample tokens from both train/val and test txt files,
+    then use the NuScenes API to resolve them to actual image filenames.
+    Returns a set of image filenames (basenames) that belong to night scenes.
+    """
+    try:
+        from nuscenes.nuscenes import NuScenes
+    except ImportError:
+        raise ImportError(
+            "nuscenes-devkit is required for night scene filtering. "
+            "Install it with: pip install nuscenes-devkit"
+        )
+
+    night_sample_tokens = set()
+    for txt_path in [trainval_txt, test_txt]:
+        txt_path = Path(txt_path)
+        if not txt_path.exists():
+            print(f"  Warning: night scenes file not found: {txt_path} – skipping")
+            continue
+        with open(txt_path, 'r') as f:
+            tokens = {line.strip() for line in f if line.strip()}
+        print(f"  Loaded {len(tokens)} tokens from {txt_path.name}")
+        night_sample_tokens |= tokens
+
+    print(f"  Total merged night sample tokens: {len(night_sample_tokens)}")
+
+    if not night_sample_tokens:
+        return set()
+
+    night_filenames = set()
+    for version in ('v1.0-trainval', 'v1.0-test'):
+        try:
+            nusc = NuScenes(version=version, dataroot=nuscenes_dataroot, verbose=False)
+        except Exception as e:
+            print(f"  Warning: could not load NuScenes {version}: {e} – skipping")
+            continue
+
+        for sd in nusc.sample_data:
+            if sd['sensor_modality'] != 'camera':
+                continue
+            if sd['sample_token'] in night_sample_tokens:
+                night_filenames.add(Path(sd['filename']).name)
+
+    print(f"  Total night image filenames resolved: {len(night_filenames)}")
+    return night_filenames
+
+
 class ImageQualityAnalyzer:
-    def __init__(self, input_directory, output_directory, gpu_id=0, batch_size=16, num_workers=None, sample_size=1000, image_size=(256, 256)):
+    def __init__(self, input_directory, output_directory, gpu_id=0, batch_size=16,
+                 num_workers=None, sample_size=1000,
+                 night_trainval_txt=None, night_test_txt=None, nuscenes_dataroot=None,
+                 image_size=(256, 256)):
         self.input_directory = Path(input_directory)
         self.output_directory = Path(output_directory)
         self.results = {}
@@ -51,21 +104,46 @@ class ImageQualityAnalyzer:
         self.batch_size = batch_size
         self.num_workers = num_workers or min(cpu_count(), 8)
         self.sample_size = sample_size
-        self.image_size = image_size
+        self.image_size = image_size  # (width, height) or None to disable resizing
 
+        # Night-scene filtering
+        self.night_filenames = set()
+        if night_trainval_txt and night_test_txt and nuscenes_dataroot:
+            print("Loading night scene filter…")
+            self.night_filenames = load_night_scene_filenames(
+                night_trainval_txt, night_test_txt, nuscenes_dataroot
+            )
+            print(f"Night scene filter ready: {len(self.night_filenames)} images will be excluded.")
+        else:
+            print("No night scene filter configured – all images will be processed.")
+
+        # GPU memory management
         self.gpu_memory_pool = []
         self.gpu_lock = threading.Lock()
 
+        # Create output directory if it doesn't exist
         self.output_directory.mkdir(parents=True, exist_ok=True)
+
+        # Initialize GPU if available
         self.initialize_gpu()
 
+        # Pre-allocate GPU memory for batch processing
         if self.use_gpu:
             self.initialize_gpu_memory_pool()
 
     def resize_image(self, image):
-        if self.image_size is not None:
-            return cv2.resize(image, self.image_size, interpolation=cv2.INTER_AREA)
-        return image
+        """Resize image to target size before analysis.
+
+        Skips resize if image_size is None or image is already the correct size.
+        Uses INTER_AREA interpolation which is optimal for downscaling.
+        """
+        if self.image_size is None:
+            return image
+        target_w, target_h = self.image_size
+        h, w = image.shape[:2]
+        if w == target_w and h == target_h:
+            return image
+        return cv2.resize(image, self.image_size, interpolation=cv2.INTER_AREA)
 
     def initialize_gpu(self):
         try:
@@ -81,8 +159,8 @@ class ImageQualityAnalyzer:
                     if self.image_size:
                         print(f"Images resized to: {self.image_size[0]}x{self.image_size[1]} before analysis")
                     else:
-                        print("Image resizing disabled")
-                    device_info = cv2.cuda.printCudaDeviceInfo(self.gpu_id)
+                        print("Image resizing disabled (original resolution)")
+                    cv2.cuda.printCudaDeviceInfo(self.gpu_id)
                 else:
                     print(f"GPU {self.gpu_id} not available. Using CPU instead.")
                     self.use_gpu = False
@@ -136,6 +214,7 @@ class ImageQualityAnalyzer:
     def process_batch_gpu(self, image_batch):
         if not self.use_gpu or not image_batch:
             return []
+
         try:
             batch_results = []
             gpu_images = []
@@ -148,10 +227,7 @@ class ImageQualityAnalyzer:
                 if gpu_buffer is not None:
                     gpu_buffer.upload(image)
                     gpu_images.append((gpu_buffer, filename))
-                    if len(image.shape) == 3:
-                        gpu_gray = cv2.cuda.cvtColor(gpu_buffer, cv2.COLOR_BGR2GRAY)
-                    else:
-                        gpu_gray = gpu_buffer
+                    gpu_gray = cv2.cuda.cvtColor(gpu_buffer, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else gpu_buffer
                     gpu_grays.append(gpu_gray)
                 else:
                     gpu_images.append((image, filename))
@@ -194,7 +270,7 @@ class ImageQualityAnalyzer:
             noise_future = self.calculate_noise_gpu_async(gpu_gray, stream)
             chromatic_aberration_future = self.calculate_chromatic_aberration_gpu_async(gpu_image, stream)
 
-            # CPU fallback for new metrics and vignetting
+            # Download once for all CPU-side metrics
             image_cpu = gpu_image.download() if isinstance(gpu_image, cv2.cuda_GpuMat) else gpu_image
             gray_cpu = gpu_gray.download() if isinstance(gpu_gray, cv2.cuda_GpuMat) else gpu_gray
 
@@ -212,6 +288,7 @@ class ImageQualityAnalyzer:
             metrics['chromatic_aberration'] = chromatic_aberration_future
 
             return metrics
+
         except Exception as e:
             print(f"GPU parallel metrics calculation failed: {e}")
             return self.calculate_metrics_cpu_fallback(
@@ -221,8 +298,7 @@ class ImageQualityAnalyzer:
     def calculate_brightness_gpu_async(self, gpu_gray, stream):
         try:
             sum_result = cv2.cuda.sum(gpu_gray)
-            brightness = sum_result[0] / (gpu_gray.rows * gpu_gray.cols)
-            return float(brightness)
+            return float(sum_result[0] / (gpu_gray.rows * gpu_gray.cols))
         except:
             return 0.0
 
@@ -230,8 +306,7 @@ class ImageQualityAnalyzer:
         try:
             gpu_laplacian = cv2.cuda.Laplacian(gpu_gray, cv2.CV_64F)
             laplacian_cpu = gpu_laplacian.download()
-            variance = np.var(laplacian_cpu)
-            return float(variance)
+            return float(np.var(laplacian_cpu))
         except:
             return 0.0
 
@@ -241,8 +316,7 @@ class ImageQualityAnalyzer:
             gpu_grad_y = cv2.cuda.Sobel(gpu_gray, cv2.CV_64F, 0, 1, ksize=3)
             grad_x = gpu_grad_x.download()
             grad_y = gpu_grad_y.download()
-            gradient_magnitude = np.sqrt(grad_x**2 + grad_y**2)
-            return float(np.var(gradient_magnitude))
+            return float(np.var(np.sqrt(grad_x**2 + grad_y**2)))
         except:
             return 0.0
 
@@ -251,8 +325,7 @@ class ImageQualityAnalyzer:
             gpu_blurred = cv2.cuda.GaussianBlur(gpu_gray, (5, 5), 0)
             gray_cpu = gpu_gray.download()
             blurred_cpu = gpu_blurred.download()
-            noise = gray_cpu.astype(np.float64) - blurred_cpu.astype(np.float64)
-            return float(np.std(noise))
+            return float(np.std(gray_cpu.astype(np.float64) - blurred_cpu.astype(np.float64)))
         except:
             return 0.0
 
@@ -260,16 +333,10 @@ class ImageQualityAnalyzer:
         try:
             gpu_channels = cv2.cuda.split(gpu_image)
             if len(gpu_channels) >= 3:
-                gpu_blue = gpu_channels[0]
-                gpu_red = gpu_channels[2]
-                gpu_blue_edges = cv2.cuda.Canny(gpu_blue, 50, 150)
-                gpu_red_edges = cv2.cuda.Canny(gpu_red, 50, 150)
-                blue_edges = gpu_blue_edges.download()
-                red_edges = gpu_red_edges.download()
-                edge_diff = np.abs(blue_edges.astype(np.float32) - red_edges.astype(np.float32))
-                return float(np.mean(edge_diff))
-            else:
-                return 0.0
+                blue_edges = cv2.cuda.Canny(gpu_channels[0], 50, 150).download()
+                red_edges  = cv2.cuda.Canny(gpu_channels[2], 50, 150).download()
+                return float(np.mean(np.abs(blue_edges.astype(np.float32) - red_edges.astype(np.float32))))
+            return 0.0
         except:
             return 0.0
 
@@ -278,53 +345,41 @@ class ImageQualityAnalyzer:
     # ------------------------------------------------------------------ #
 
     def calculate_saturation_cpu(self, image):
-        """Mean saturation of the S-channel in HSV space."""
+        """Mean saturation of the S-channel in HSV space.
+        Synthetic images tend to be oversaturated vs. real nuScenes images."""
         if len(image.shape) < 3 or image.shape[2] < 3:
             return 0.0
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         return float(np.mean(hsv[:, :, 1]))
 
     def calculate_laplacian_variance_cpu(self, gray_image):
-        """
-        Laplacian variance as a dedicated sharpness/focus metric.
-        Unlike the existing 'sharpness' (which applies Laplacian to a color image
-        and uses cv2.Laplacian().var()), this operates on a pre-computed grayscale
-        image and uses a wider kernel for a slightly different frequency sensitivity.
-        """
+        """Laplacian variance with ksize=5 for mid-frequency sharpness sensitivity.
+        Complements the existing 'sharpness' metric (ksize=1) — synthetic images
+        often appear unnaturally sharp at mid frequencies."""
         if len(gray_image.shape) == 3:
-            gray = cv2.cvtColor(gray_image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = gray_image
-        lap = cv2.Laplacian(gray.astype(np.float64), cv2.CV_64F, ksize=5)
+            gray_image = cv2.cvtColor(gray_image, cv2.COLOR_BGR2GRAY)
+        lap = cv2.Laplacian(gray_image.astype(np.float64), cv2.CV_64F, ksize=5)
         return float(np.var(lap))
 
     def calculate_fft_power_spectrum_cpu(self, gray_image):
-        """
-        High-frequency energy ratio from the 2-D FFT magnitude spectrum.
-        Returns the fraction of total power contained in the outer 50 % of
-        frequencies (i.e. high-frequency detail / texture richness).
-        Synthetic images typically show a different high-freq ratio than real ones.
-        """
+        """High-frequency energy ratio from the 2-D FFT magnitude spectrum.
+        Returns the fraction of total power in the outer 50% of frequencies.
+        Real camera images have richer high-freq content from grain and lens
+        imperfections than synthetic renders."""
         if len(gray_image.shape) == 3:
-            gray = cv2.cvtColor(gray_image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = gray_image
+            gray_image = cv2.cvtColor(gray_image, cv2.COLOR_BGR2GRAY)
 
-        f = np.fft.fft2(gray.astype(np.float64))
-        fshift = np.fft.fftshift(f)
-        magnitude = np.abs(fshift)
+        f = np.fft.fft2(gray_image.astype(np.float64))
+        magnitude = np.abs(np.fft.fftshift(f))
 
         h, w = magnitude.shape
         cy, cx = h // 2, w // 2
-        # radius of each pixel from DC component
         Y, X = np.ogrid[:h, :w]
         dist = np.sqrt((X - cx) ** 2 + (Y - cy) ** 2)
         max_radius = np.sqrt(cx**2 + cy**2)
 
         total_power = np.sum(magnitude)
-        high_freq_mask = dist > (0.5 * max_radius)
-        high_freq_power = np.sum(magnitude[high_freq_mask])
-
+        high_freq_power = np.sum(magnitude[dist > 0.5 * max_radius])
         return float(high_freq_power / total_power) if total_power > 0 else 0.0
 
     # ------------------------------------------------------------------ #
@@ -332,11 +387,7 @@ class ImageQualityAnalyzer:
     # ------------------------------------------------------------------ #
 
     def calculate_metrics_cpu_fallback(self, image):
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image
-
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         return {
             'brightness': self.calculate_brightness_cpu(image),
             'sharpness': self.calculate_sharpness_cpu(image),
@@ -350,32 +401,20 @@ class ImageQualityAnalyzer:
         }
 
     def calculate_brightness_cpu(self, image):
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         return float(np.mean(gray))
 
     def calculate_sharpness_cpu(self, image):
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
     def calculate_vignetting_cpu(self, gray_image):
-        if len(gray_image.shape) == 3:
-            gray = cv2.cvtColor(gray_image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = gray_image
-
+        gray = cv2.cvtColor(gray_image, cv2.COLOR_BGR2GRAY) if len(gray_image.shape) == 3 else gray_image
         h, w = gray.shape
         center_h, center_w = h // 2, w // 2
         center_size = min(h, w) // 10
-        center_region = gray[center_h - center_size:center_h + center_size,
-                             center_w - center_size:center_w + center_size]
-        center_brightness = np.mean(center_region)
-
+        center_brightness = np.mean(gray[center_h - center_size:center_h + center_size,
+                                         center_w - center_size:center_w + center_size])
         corner_size = min(h, w) // 20
         corners = [
             gray[:corner_size, :corner_size],
@@ -387,32 +426,25 @@ class ImageQualityAnalyzer:
         return float((center_brightness - corner_brightness) / center_brightness) if center_brightness > 0 else 0.0
 
     def calculate_compression_artifacts_cpu(self, image):
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
         return float(np.var(np.sqrt(grad_x**2 + grad_y**2)))
 
     def calculate_noise_cpu(self, image):
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        noise = gray.astype(np.float64) - blurred.astype(np.float64)
-        return float(np.std(noise))
+        return float(np.std(gray.astype(np.float64) - blurred.astype(np.float64)))
 
     def calculate_chromatic_aberration_cpu(self, image):
         if len(image.shape) < 3:
             return 0.0
         blue_edges = cv2.Canny(image[:, :, 0], 50, 150)
-        red_edges = cv2.Canny(image[:, :, 2], 50, 150)
+        red_edges  = cv2.Canny(image[:, :, 2], 50, 150)
         return float(np.mean(np.abs(blue_edges.astype(np.float32) - red_edges.astype(np.float32))))
 
     # ------------------------------------------------------------------ #
-    #  Batch / directory processing (unchanged logic)                      #
+    #  Image loading / batch processing                                    #
     # ------------------------------------------------------------------ #
 
     def analyze_image_batch(self, image_paths_batch):
@@ -426,6 +458,7 @@ class ImageQualityAnalyzer:
                         image_batch.append((image, image_path.name))
                 except Exception as e:
                     print(f"Error loading {image_path}: {e}")
+                    continue
             if image_batch:
                 return self.process_batch_gpu(image_batch)
             return []
@@ -449,8 +482,8 @@ class ImageQualityAnalyzer:
                 return None
 
         with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-            futures = {executor.submit(process_single_image, p): p for p in image_paths_batch}
-            for future in futures:
+            future_to_path = {executor.submit(process_single_image, path): path for path in image_paths_batch}
+            for future in future_to_path:
                 result = future.result()
                 if result is not None:
                     results.append(result)
@@ -462,6 +495,16 @@ class ImageQualityAnalyzer:
         results = []
 
         all_image_files = [f for f in directory_path.glob('*') if f.suffix.lower() in image_extensions]
+
+        # Night-scene filtering
+        if self.night_filenames:
+            before = len(all_image_files)
+            all_image_files = [f for f in all_image_files if f.name not in self.night_filenames]
+            filtered = before - len(all_image_files)
+            if filtered:
+                print(f"  Night filter removed {filtered} images from {directory_path.name} "
+                      f"({before} → {len(all_image_files)})")
+
         total_available = len(all_image_files)
 
         if total_available == 0:
@@ -477,30 +520,35 @@ class ImageQualityAnalyzer:
             image_files = random.sample(all_image_files, self.sample_size)
 
         total_images = len(image_files)
-        size_str = f"{self.image_size[0]}x{self.image_size[1]}" if self.image_size else "original"
-        print(f"  Processing {total_images} images (size: {size_str})...")
+        if self.image_size:
+            print(f"  Processing {total_images} images (resized to {self.image_size[0]}x{self.image_size[1]})...")
+        else:
+            print(f"  Processing {total_images} images (original resolution)...")
 
         start_time = time.time()
         processed_count = 0
 
         for i in range(0, total_images, self.batch_size):
             batch = image_files[i:i + self.batch_size]
-            batch_start = time.time()
+            batch_start_time = time.time()
+
             batch_results = self.analyze_image_batch(batch)
             results.extend(batch_results)
+
             processed_count += len(batch)
-            batch_time = time.time() - batch_start
+            batch_time = time.time() - batch_start_time
 
             if self.use_gpu:
                 throughput = len(batch) / batch_time if batch_time > 0 else 0
-                print(f"  Batch {i // self.batch_size + 1}: {len(batch)} imgs in {batch_time:.2f}s "
-                      f"({throughput:.1f} img/s) – Total: {processed_count}/{total_images}")
+                print(f"  Batch {i // self.batch_size + 1}: {len(batch)} images in {batch_time:.2f}s "
+                      f"({throughput:.1f} img/s) - Total: {processed_count}/{total_images}")
             else:
                 print(f"  Progress: {processed_count}/{total_images} images processed")
 
         total_time = time.time() - start_time
-        print(f"  Directory done: {total_images} imgs in {total_time:.2f}s "
+        print(f"  Directory completed: {total_images} images in {total_time:.2f}s "
               f"({total_images / total_time:.1f} img/s)")
+
         return results
 
     # ------------------------------------------------------------------ #
@@ -520,9 +568,8 @@ class ImageQualityAnalyzer:
         return stats
 
     def create_histogram_plots(self, stats, title, save_path):
-        """Create a grid of histogram plots for all metrics (3 per row)."""
-        metrics = ALL_METRICS
-        n = len(metrics)
+        """Grid of histogram plots for all metrics (3 per row)."""
+        n = len(ALL_METRICS)
         ncols = 3
         nrows = (n + ncols - 1) // ncols
 
@@ -530,18 +577,18 @@ class ImageQualityAnalyzer:
         fig.suptitle(title, fontsize=16, fontweight='bold')
         axes = axes.flatten()
 
-        for i, metric in enumerate(metrics):
+        for i, metric in enumerate(ALL_METRICS):
             ax = axes[i]
             if metric not in stats:
                 ax.set_visible(False)
                 continue
-            values = stats[metric]['values']
-            avg = stats[metric]['average']
-            median = stats[metric]['median']
+            values  = stats[metric]['values']
+            avg     = stats[metric]['average']
+            median  = stats[metric]['median']
             std_val = stats[metric]['std']
 
             ax.hist(values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-            ax.axvline(avg, color='red', linestyle='--', linewidth=2, label=f'Avg: {avg:.3f}')
+            ax.axvline(avg,    color='red',   linestyle='--', linewidth=2, label=f'Avg: {avg:.3f}')
             ax.axvline(median, color='green', linestyle='--', linewidth=2, label=f'Median: {median:.3f}')
             ax.set_title(f'{METRIC_TITLES[metric]}\n(σ: {std_val:.3f})', fontweight='bold')
             ax.set_xlabel('Value')
@@ -549,7 +596,6 @@ class ImageQualityAnalyzer:
             ax.legend()
             ax.grid(True, alpha=0.3)
 
-        # hide any unused subplots
         for j in range(i + 1, len(axes)):
             axes[j].set_visible(False)
 
@@ -558,15 +604,11 @@ class ImageQualityAnalyzer:
         plt.close()
 
     def save_to_csv(self, stats, filename):
-        data = []
-        for metric in ALL_METRICS:
-            if metric in stats:
-                data.append({
-                    'metric': metric,
-                    'average': stats[metric]['average'],
-                    'median': stats[metric]['median'],
-                    'std': stats[metric]['std']
-                })
+        data = [
+            {'metric': m, 'average': stats[m]['average'],
+             'median': stats[m]['median'], 'std': stats[m]['std']}
+            for m in ALL_METRICS if m in stats
+        ]
         pd.DataFrame(data).to_csv(filename, index=False)
 
     def save_detailed_csv(self, data, filename):
@@ -574,61 +616,48 @@ class ImageQualityAnalyzer:
 
     def save_histogram_data_to_csv(self, stats, filename, num_bins=20):
         data = []
+
         for metric in ALL_METRICS:
             if metric not in stats:
                 continue
-            values = stats[metric]['values']
-            avg = stats[metric]['average']
-            median = stats[metric]['median']
-            std_val = stats[metric]['std']
-            min_val = np.min(values)
-            max_val = np.max(values)
+            values        = stats[metric]['values']
+            avg           = stats[metric]['average']
+            median        = stats[metric]['median']
+            std_val       = stats[metric]['std']
             total_samples = len(values)
 
             hist, bin_edges = np.histogram(values, bins=num_bins)
-            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            bin_centers     = (bin_edges[:-1] + bin_edges[1:]) / 2
             cumulative_freq = np.cumsum(hist)
 
             for i in range(num_bins):
                 bin_start = bin_edges[i]
-                bin_end = bin_edges[i + 1]
+                bin_end   = bin_edges[i + 1]
                 frequency = hist[i]
-                denom = bin_end - bin_start
                 data.append({
-                    'metric': metric,
-                    'average': avg,
-                    'median': median,
-                    'std': std_val,
+                    'metric': metric, 'average': avg, 'median': median, 'std': std_val,
                     'total_samples': total_samples,
-                    'min_value': min_val,
-                    'max_value': max_val,
-                    'num_bins': num_bins,
-                    'bin_number': i + 1,
-                    'bin_center': bin_centers[i],
-                    'bin_start': bin_start,
-                    'bin_end': bin_end,
+                    'min_value': np.min(values), 'max_value': np.max(values),
+                    'num_bins': num_bins, 'bin_number': i + 1,
+                    'bin_center': bin_centers[i], 'bin_start': bin_start, 'bin_end': bin_end,
                     'frequency': frequency,
-                    'frequency_density': frequency / denom if denom > 0 else 0,
+                    'frequency_density': frequency / (bin_end - bin_start) if (bin_end - bin_start) > 0 else 0,
                     'cumulative_frequency': cumulative_freq[i],
                     'relative_frequency': frequency / total_samples if total_samples > 0 else 0,
                 })
 
         pd.DataFrame(data).to_csv(filename, index=False)
 
-    # ------------------------------------------------------------------ #
-    #  Combined cross-camera plots                                         #
-    # ------------------------------------------------------------------ #
-
     def create_combined_metric_plots(self, all_data, metrics):
         cameras = sorted(set(item['camera'] for item in all_data))
-        colors = plt.cm.Set3(np.linspace(0, 1, len(cameras)))
+        colors  = plt.cm.Set3(np.linspace(0, 1, len(cameras)))
 
         for metric in metrics:
-            fig, ax = plt.subplots(figsize=(12, 8))
+            fig, ax = plt.subplots(1, 1, figsize=(12, 8))
 
             for i, camera in enumerate(cameras):
-                camera_data = [item[metric] for item in all_data if item['camera'] == camera and metric in item]
-                ax.hist(camera_data, bins=15, alpha=0.6, label=camera, color=colors[i])
+                vals = [item[metric] for item in all_data if item['camera'] == camera and metric in item]
+                ax.hist(vals, bins=15, alpha=0.6, label=camera, color=colors[i])
 
             ax.set_title(
                 f'Distribution of {METRIC_TITLES.get(metric, metric)} Across All Cameras',
@@ -639,20 +668,19 @@ class ImageQualityAnalyzer:
             ax.legend()
             ax.grid(True, alpha=0.3)
             plt.tight_layout()
-            save_path = self.output_directory / f"combined_{metric}_distribution.png"
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.savefig(self.output_directory / f"combined_{metric}_distribution.png",
+                        dpi=300, bbox_inches='tight')
             plt.close()
 
-            # per-camera summary CSV for this metric
-            metric_data = []
-            for camera in cameras:
-                vals = [item[metric] for item in all_data if item['camera'] == camera and metric in item]
-                metric_data.append({
-                    'camera': camera,
-                    'average': np.mean(vals),
-                    'median': np.median(vals),
-                    'std': np.std(vals)
-                })
+            metric_data = [
+                {
+                    'camera': cam,
+                    'average': np.mean([item[metric] for item in all_data if item['camera'] == cam and metric in item]),
+                    'median':  np.median([item[metric] for item in all_data if item['camera'] == cam and metric in item]),
+                    'std':     np.std([item[metric] for item in all_data if item['camera'] == cam and metric in item]),
+                }
+                for cam in cameras
+            ]
             pd.DataFrame(metric_data).to_csv(
                 self.output_directory / f"combined_{metric}_statistics.csv", index=False
             )
@@ -668,9 +696,10 @@ class ImageQualityAnalyzer:
         print(f"Output directory: {self.output_directory}")
         print(f"Sample size per camera: {self.sample_size} images")
         if self.image_size:
-            print(f"Analysis image size: {self.image_size[0]}x{self.image_size[1]}")
+            print(f"Analysis image size: {self.image_size[0]}x{self.image_size[1]} (resized if needed)")
         else:
-            print("Analysis image size: original resolution")
+            print("Analysis image size: original resolution (no resizing)")
+        print(f"Metrics: {', '.join(ALL_METRICS)}")
         print("=" * 50)
 
         for camera_dir in sorted(self.input_directory.iterdir()):
@@ -686,9 +715,10 @@ class ImageQualityAnalyzer:
             stats = self.calculate_statistics(image_data, ALL_METRICS)
             self.results[camera_dir.name] = stats
 
-            plot_path = self.output_directory / f"{camera_dir.name}_analysis.png"
-            self.create_histogram_plots(stats, f"Image Quality Analysis – {camera_dir.name}", plot_path)
-
+            self.create_histogram_plots(
+                stats, f"Image Quality Analysis – {camera_dir.name}",
+                self.output_directory / f"{camera_dir.name}_analysis.png"
+            )
             self.save_to_csv(stats, self.output_directory / f"{camera_dir.name}_statistics.csv")
             self.save_detailed_csv(image_data, self.output_directory / f"{camera_dir.name}_detailed.csv")
 
@@ -708,8 +738,7 @@ class ImageQualityAnalyzer:
         overall_stats = self.calculate_statistics(all_camera_data, ALL_METRICS)
 
         self.create_histogram_plots(
-            overall_stats,
-            "Overall Image Quality Analysis – All Cameras",
+            overall_stats, "Overall Image Quality Analysis – All nuScenes Cameras",
             self.output_directory / "overall_analysis.png"
         )
         self.save_histogram_data_to_csv(overall_stats, self.output_directory / "overall_statistics.csv")
@@ -717,8 +746,9 @@ class ImageQualityAnalyzer:
 
         print("=" * 50)
         print("Analysis complete!")
-        print(f"Results saved to: {self.output_directory}\n")
-        print("Overall Summary:")
+        print(f"Results saved to: {self.output_directory}")
+
+        print("\nOverall Summary:")
         for metric in ALL_METRICS:
             print(f"  {METRIC_TITLES[metric]}:")
             print(f"    Average: {overall_stats[metric]['average']:.4f}")
@@ -734,30 +764,23 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description='Analyze image quality metrics for camera directories with GPU acceleration'
     )
-    parser.add_argument('input_dir', help='Input directory containing CAM_* subdirectories')
+    parser.add_argument('input_dir',  help='Input directory containing CAM_* subdirectories')
     parser.add_argument('output_dir', help='Output directory for results')
     parser.add_argument('--gpu', type=int, default=0, help='GPU device ID (default: 0)')
     parser.add_argument('--no-gpu', action='store_true', help='Force CPU processing')
     parser.add_argument('--batch-size', type=int, default=16, help='Batch size for GPU (default: 16)')
     parser.add_argument('--workers', type=int, default=None, help='CPU worker threads (default: auto)')
-    parser.add_argument('--sample-size', type=int, default=1000, help='Images sampled per camera (default: 1000)')
-    parser.add_argument(
-        '--image-size', type=str, default='256x256',
-        help='Resize before analysis, e.g. 640x480. Use "none" to disable (default: 256x256).'
-    )
+    parser.add_argument('--sample-size', type=int, default=1000,
+                        help='Images sampled per camera directory (default: 1000)')
+    parser.add_argument('--night-trainval-txt', type=str, default=None,
+                        help='Path to the nuScenes v1.0-trainval night scenes txt file')
+    parser.add_argument('--night-test-txt', type=str, default=None,
+                        help='Path to the nuScenes v1.0-test night scenes txt file')
+    parser.add_argument('--nuscenes-dataroot', type=str, default=None,
+                        help='Root directory of the nuScenes dataset (required for night filtering)')
+    parser.add_argument('--image-size', type=str, default='256x256',
+                        help='Resize before analysis, e.g. 640x480. Use "none" to disable (default: 256x256).')
     return parser.parse_args()
-
-
-def parse_image_size(s):
-    if s.lower() == 'none':
-        return None
-    try:
-        w, h = map(int, s.lower().split('x'))
-        if w <= 0 or h <= 0:
-            raise ValueError
-        return (w, h)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"Invalid image size '{s}'. Use WxH or 'none'.")
 
 
 def validate_directories(input_dir, output_dir):
@@ -771,6 +794,7 @@ def validate_directories(input_dir, output_dir):
     cam_dirs = [d for d in input_path.iterdir() if d.is_dir() and d.name.startswith('CAM_')]
     if not cam_dirs:
         print(f"Warning: No CAM_* directories found in '{input_dir}'")
+        print("Expected directory structure: input_dir/CAM_*/image_files.jpg")
     return True
 
 
@@ -780,43 +804,64 @@ def main():
     if not validate_directories(args.input_dir, args.output_dir):
         sys.exit(1)
 
-    try:
-        image_size = parse_image_size(args.image_size)
-    except argparse.ArgumentTypeError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    if args.image_size.lower() == 'none':
+        image_size = None
+    else:
+        try:
+            w, h = map(int, args.image_size.lower().split('x'))
+            if w <= 0 or h <= 0:
+                raise ValueError
+            image_size = (w, h)
+        except (ValueError, AttributeError):
+            print(f"Error: Invalid image size '{args.image_size}'. Use WxH (e.g. 256x256) or 'none'.")
+            sys.exit(1)
 
-    print("Image Quality Analysis Tool – GPU Accelerated")
+    print("Image Quality Analysis Tool with GPU Acceleration")
     print("=" * 80)
-    print(f"Metrics: {', '.join(ALL_METRICS)}")
-    size_str = f"{image_size[0]}x{image_size[1]}" if image_size else "original"
-    print(f"Image resize: {size_str}")
+    if image_size:
+        print(f"Image resize: {image_size[0]}x{image_size[1]} (skipped if already correct size)")
+    else:
+        print("Image resize: disabled (original resolution)")
+
+    night_trainval_txt = args.night_trainval_txt
+    night_test_txt     = args.night_test_txt
+    nuscenes_dataroot  = args.nuscenes_dataroot
+
+    if (night_trainval_txt or night_test_txt) and not nuscenes_dataroot:
+        print("Warning: --night-trainval-txt / --night-test-txt provided but "
+              "--nuscenes-dataroot is missing. Night filtering will be skipped.")
+        night_trainval_txt = night_test_txt = None
+
+    common_kwargs = dict(
+        batch_size=args.batch_size if not args.no_gpu else 1,
+        num_workers=args.workers,
+        sample_size=args.sample_size,
+        night_trainval_txt=night_trainval_txt,
+        night_test_txt=night_test_txt,
+        nuscenes_dataroot=nuscenes_dataroot,
+        image_size=image_size,
+    )
 
     if args.no_gpu:
         print("GPU processing disabled by user")
-        analyzer = ImageQualityAnalyzer(
-            args.input_dir, args.output_dir,
-            gpu_id=-1, batch_size=1, num_workers=args.workers,
-            sample_size=args.sample_size, image_size=image_size
-        )
+        analyzer = ImageQualityAnalyzer(args.input_dir, args.output_dir,
+                                        gpu_id=-1, **common_kwargs)
         analyzer.use_gpu = False
     else:
-        analyzer = ImageQualityAnalyzer(
-            args.input_dir, args.output_dir,
-            gpu_id=args.gpu, batch_size=args.batch_size, num_workers=args.workers,
-            sample_size=args.sample_size, image_size=image_size
-        )
+        analyzer = ImageQualityAnalyzer(args.input_dir, args.output_dir,
+                                        gpu_id=args.gpu, **common_kwargs)
 
     start_time = time.time()
     analyzer.run_analysis()
     total_time = time.time() - start_time
 
     print("=" * 80)
-    print(f"Total processing time: {total_time:.2f}s")
+    print(f"Total processing time: {total_time:.2f} seconds")
     if analyzer.use_gpu:
-        print(f"GPU {analyzer.gpu_id} | batch size {analyzer.batch_size}")
+        print(f"Processing completed using GPU {analyzer.gpu_id} acceleration")
+        print(f"Batch size: {analyzer.batch_size}")
     else:
-        print(f"CPU | {analyzer.num_workers} workers")
+        print(f"Processing completed using CPU with {analyzer.num_workers} workers")
     print("=" * 80)
 
 
